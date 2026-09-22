@@ -117,7 +117,7 @@ func TestValidateSBOM(t *testing.T) {
 
 		err := ValidateSBOM(bom)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "Components")
+		assert.Contains(t, err.Error(), "components")
 	})
 
 	t.Run("component missing Name fails", func(t *testing.T) {
@@ -309,7 +309,7 @@ func TestValidateVEX(t *testing.T) {
 
 		err := ValidateVEX(vex)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "Vulnerabilities")
+		assert.Contains(t, err.Error(), "vulnerabilities")
 	})
 
 	t.Run("vulnerability missing ID fails", func(t *testing.T) {

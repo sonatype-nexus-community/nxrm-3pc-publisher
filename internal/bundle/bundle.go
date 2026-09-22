@@ -54,7 +54,7 @@ func Assemble(
 			}
 
 			err = func() error {
-				defer rc.Close()
+				defer func() { _ = rc.Close() }()
 				fw, err := w.Create(asset.Filename)
 				if err != nil {
 					return fmt.Errorf("creating zip entry for %q: %w", asset.Filename, err)

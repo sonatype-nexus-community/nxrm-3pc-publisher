@@ -84,7 +84,7 @@ func Publish(ctx context.Context, fetch FetchFunc, comp model.Component, repoCfg
 	if err != nil {
 		return Result{}, fmt.Errorf("fetching CycloneDX asset %q: %w", sbomAsset.Filename, err)
 	}
-	defer sbomContent.Close()
+	defer func() { _ = sbomContent.Close() }()
 
 	sbom, vex, err := cyclonedx.Split(sbomContent)
 	if err != nil {

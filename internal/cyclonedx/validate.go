@@ -45,7 +45,7 @@ func ValidateSBOM(bom *cdx.BOM) error {
 	}
 
 	if bom.Components == nil || len(*bom.Components) == 0 {
-		return fmt.Errorf("Components is required and must not be empty")
+		return fmt.Errorf("components is required and must not be empty")
 	}
 
 	hasLicenses := false
@@ -96,7 +96,7 @@ func ValidateVEX(vex *cdx.BOM) error {
 	}
 
 	if vex.Vulnerabilities == nil || len(*vex.Vulnerabilities) == 0 {
-		return fmt.Errorf("Vulnerabilities is required and must not be empty")
+		return fmt.Errorf("vulnerabilities is required and must not be empty")
 	}
 
 	for i, vuln := range *vex.Vulnerabilities {
