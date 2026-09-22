@@ -1,0 +1,17 @@
+# Go
+/nxrm-3pc-publisher
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+dist/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store

@@ -10,20 +10,22 @@ It's great you're here and reading this guide, because we need volunteers to hel
 
 ## Engaging with this project
 
-TODO: Add links below to your repo's GitHub Issues and Discussions pages.
-
 Here are some important resources:
-- [GitHub Issues](#) - a place for bugs to be raised and feature requests made
-- [GitHub Discussions](#) - a place to discuss ideas or real-world usage
+- [GitHub Issues](https://github.com/sonatype-nexus-community/nxrm-3pc-publisher/issues) - a place for bugs to be raised and feature requests made
+- [GitHub Discussions](https://github.com/sonatype-nexus-community/nxrm-3pc-publisher/discussions) - a place to discuss ideas or real-world usage
 
 ## Development Guidelines
 
-*TODO: Explain in detail what development standards must be adhered to when contributions are made.*
+This is a Go project. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the
+overall design before making non-trivial changes.
 
-*You might include:*
-- Testing requirements
-- Explanation of PR Checks
-- What to expect from a PR reviewer/approver (such as expected time to response)
+- All NXRM REST calls go through
+  [`nexus-repo-api-client-go`](https://github.com/sonatype-nexus-community/nexus-repo-api-client-go).
+  If that client is missing an endpoint or field this project needs, please
+  raise a fix or feature request in that repo rather than working around the
+  gap here (e.g. raw HTTP calls that bypass the client, or duplicated types).
+- PRs are checked by CI (`go build`, `go vet`, `golangci-lint`) on every push
+  and pull request; a release is cut via GoReleaser on tagged pushes.
 
 ### Coding Conventions
 
@@ -33,18 +35,21 @@ Here are some important resources:
   Here are some notes we found helpful in configuring a local environment to automatically sign git commits:
     - [GPG commit signature verification](https://docs.github.com/en/authentication/managing-commit-signature-verification/about-commit-signature-verification#gpg-commit-signature-verification)
     - [Telling Git about your GPG key](https://docs.github.com/en/authentication/managing-commit-signature-verification/telling-git-about-your-signing-key#telling-git-about-your-gpg-key)
-    
-- TODO: Explain code style, convention & quality standards (and any associated checks that will be run)
+
+- Code is formatted with `gofmt` and linted with
+  [`golangci-lint`](https://golangci-lint.run/); run both locally before
+  opening a PR. Follow existing package conventions (flat `internal/`
+  packages, no `cmd/`/`pkg/`) rather than introducing new structure.
 
 ## Testing
 
-*TODO: Explain in detail:*
-
-- How to run tests, including dependencies that might need installing or configuring
-- Environmental configuration that may be required
-- Consideration when writing tests (i.e. don't depend on *X*)
-
-*You might wish to break this out into different sub-sections if you have, for example, unit tests and integration tests with differing requirements.*
+Run `go test ./...` before submitting a PR. Unit tests use the standard
+library `testing` package (and `testify` where it improves clarity), and
+mock NXRM/S3 network calls via interfaces at the package boundary rather than
+hitting live servers. New logic that touches CycloneDX SBOM/VEX generation,
+bundle assembly, or S3 path construction should come with table-driven test
+coverage, since output from this tool is written to an immutable, no-delete
+S3 bucket.
 
 
 ## Submitting Contributions
