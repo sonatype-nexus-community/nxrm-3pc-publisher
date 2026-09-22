@@ -161,16 +161,14 @@ func (c *Client) ResolveByID(ctx context.Context, id string) (model.Component, e
 // pages) should be passed back in to fetch the next page. Used by the
 // backfill subcommand to walk an entire repository.
 //
-// This deliberately calls SearchAPI.ListSearch rather than
-// ComponentsAPI.ListComponents: in nexus-repo-api-client-go v395.96.2,
-// ListComponents returns the untyped Page{Items []map[string]interface{}}
-// model instead of a typed component list, while ListSearch (filtered only
-// by repository, i.e. equivalent to "list everything in this repo") returns
-// the typed PageComponentXO this tool needs. Per project convention, that
-// typing gap belongs upstream in nexus-repo-api-client-go, not worked around
-// here with ad-hoc map decoding (see ARCHITECTURE.md §4.1, §12).
+// nexus-repo-api-client-go v395.96.2 shipped ComponentsAPI.ListComponents
+// returning the untyped Page{Items []map[string]interface{}} model instead
+// of the typed PageComponentXO its own OpenAPI spec declared; this was fixed
+// upstream in v395.96.3 (see go.mod), so ListComponents can be called
+// directly here rather than substituting SearchAPI.ListSearch as a
+// workaround.
 func (c *Client) ListComponentsPage(ctx context.Context, repo, continuationToken string) (items []model.Component, nextToken string, err error) {
-	req := c.api.SearchAPI.ListSearch(c.withAuth(ctx)).Repository(repo)
+	req := c.api.ComponentsAPI.ListComponents(c.withAuth(ctx)).Repository(repo)
 	if continuationToken != "" {
 		req = req.ContinuationToken(continuationToken)
 	}
