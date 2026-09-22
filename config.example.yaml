@@ -1,0 +1,53 @@
+# Example configuration for nxrm-3pc-publisher. Copy this file, fill in your
+# own values, and pass it via -config to any subcommand.
+#
+# AWS credentials are intentionally NOT part of this file: the S3 uploader
+# uses the standard AWS SDK v2 credential chain (environment variables,
+# shared config/profile, or an IAM role) so credentials never need to be
+# checked in or passed on the command line.
+
+nxrm:
+  url: https://nexus.example.com
+  auth:
+    username: admin
+    password: admin123
+
+# Required only for the `serve` subcommand.
+webhook:
+  secret: change-me-to-the-shared-secret-configured-on-the-NXRM-webhook-capability
+  listenAddr: ":8443"
+
+s3:
+  bucket: sonatype-3p-catalog
+  region: us-east-1
+
+# Per-NXRM-format rules for which sibling assets belong in a component's
+# flat archive bundle, and how to recognize the vendor's CycloneDX asset.
+# The SBOM asset itself is never included in the bundle zip -- it's split
+# into SBOM/VEX peer files and uploaded separately.
+formats:
+  maven2:
+    includeAssetSuffixes:
+      - ".jar"
+      - ".pom"
+      - "-sources.jar"
+      - "-javadoc.jar"
+    sbomSuffix: "-cyclonedx.json"
+  npm:
+    includeAssetSuffixes:
+      - ".tgz"
+    sbomSuffix: "-cyclonedx.json"
+
+# Every NXRM repository this tool is allowed to act on, keyed by repository
+# name. `ecosystem` is required -- there is no default, so an unconfigured or
+# misclassified repository fails config validation rather than silently
+# landing under a guessed ecosystem.
+repositories:
+  jackson-maven-releases:
+    ecosystem: maven
+    # Use the component's NXRM group (e.g. Maven groupId) as the S3 path
+    # namespace segment.
+    namespaceFromGroup: true
+  patched-npm-releases:
+    ecosystem: npm
+    namespaceFromGroup: false

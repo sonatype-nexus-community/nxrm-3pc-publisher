@@ -20,12 +20,40 @@ by coordinates, or a bulk backfill over an existing repository.
 
 ## Usage
 
-Use this section (and any additional sub-sections) to explain how to use this project.
+### Installation
 
-Include:
-- Installation
-- Configuration
-- Execution
+```
+go install github.com/sonatype-nexus-community/nxrm-3pc-publisher@latest
+```
+
+Or download a prebuilt binary from the [releases page](https://github.com/sonatype-nexus-community/nxrm-3pc-publisher/releases).
+
+### Configuration
+
+All three commands read a YAML config file (`-config`). See
+[`config.example.yaml`](./config.example.yaml) for a documented example
+covering NXRM connection details, the S3 destination, per-NXRM-format bundle
+assembly rules, and the watched repositories (each with a required
+`ecosystem` — there is no default). AWS credentials are never read from this
+file; they come from the standard AWS SDK credential chain (environment
+variables, shared config, IAM role, or SSO profile).
+
+### Execution
+
+```
+# One-off: resolve a component by NXRM coordinates and publish it
+nxrm-3pc-publisher publish -config config.yaml -repository maven-releases -name jackson-core -version 2.13.5.1-osera-00001
+
+# Backfill: publish every component currently in a repository
+nxrm-3pc-publisher backfill -config config.yaml -repository maven-releases
+
+# Serve: run an HTTP server that receives NXRM component webhooks
+nxrm-3pc-publisher serve -config config.yaml
+```
+
+Run `nxrm-3pc-publisher <command> -h` for the full flag list on any
+subcommand. See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the three modes
+share one pipeline.
 
 ## Development
 
