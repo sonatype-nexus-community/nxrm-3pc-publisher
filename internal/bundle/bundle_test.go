@@ -35,6 +35,8 @@ func TestAssemble(t *testing.T) {
 		rule           config.FormatRule
 		fetchContent   map[string]string
 		fetchErr       map[string]error
+		sbomFilename   string
+		sbomJSON       []byte
 		wantFilename   string
 		wantFiles      []string
 		wantFileCount  int
@@ -42,7 +44,7 @@ func TestAssemble(t *testing.T) {
 		wantErrContent string
 	}{
 		{
-			name: "include matching assets and exclude SBOM",
+			name: "include matching assets, exclude vendor SBOM asset, embed derived SBOM",
 			component: model.Component{
 				Name:    "spring-boot",
 				Version: "4.1.1-patched-1",
@@ -62,9 +64,11 @@ func TestAssemble(t *testing.T) {
 				"http://example.com/spring-boot.pom": "pom-content",
 				"http://example.com/sources.jar":     "sources-content",
 			},
+			sbomFilename:  "spring-boot-4.1.1-patched-1.bom.json",
+			sbomJSON:      []byte(`{"bomFormat":"CycloneDX"}`),
 			wantFilename:  "spring-boot-4.1.1-patched-1.zip",
-			wantFiles:     []string{"spring-boot-4.1.1-patched-1.jar", "spring-boot-4.1.1-patched-1.pom", "spring-boot-4.1.1-patched-1-sources.jar"},
-			wantFileCount: 3,
+			wantFiles:     []string{"spring-boot-4.1.1-patched-1.jar", "spring-boot-4.1.1-patched-1.pom", "spring-boot-4.1.1-patched-1-sources.jar", "spring-boot-4.1.1-patched-1.bom.json"},
+			wantFileCount: 4,
 		},
 		{
 			name: "exclude SBOM even if suffix matches include pattern",
@@ -156,7 +160,7 @@ func TestAssemble(t *testing.T) {
 				return io.NopCloser(strings.NewReader(content)), nil
 			}
 
-			buf, filename, err := Assemble(context.Background(), tt.component, tt.rule, fetch)
+			buf, filename, err := Assemble(context.Background(), tt.component, tt.rule, fetch, tt.sbomFilename, tt.sbomJSON)
 
 			if tt.wantErr {
 				if err == nil {
@@ -225,7 +229,7 @@ func TestAssemble_ErrorOnFetchFailure(t *testing.T) {
 		return nil, io.ErrUnexpectedEOF
 	}
 
-	_, _, err := Assemble(context.Background(), comp, rule, fetch)
+	_, _, err := Assemble(context.Background(), comp, rule, fetch, "", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -257,7 +261,7 @@ func TestAssemble_ContextCancellation(t *testing.T) {
 		return io.NopCloser(strings.NewReader("content")), nil
 	}
 
-	buf, filename, err := Assemble(ctx, comp, rule, fetch)
+	buf, filename, err := Assemble(ctx, comp, rule, fetch, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -266,5 +270,59 @@ func TestAssemble_ContextCancellation(t *testing.T) {
 	}
 	if filename != "ctxlib-1.0.0.zip" {
 		t.Fatalf("filename = %q, want %q", filename, "ctxlib-1.0.0.zip")
+	}
+}
+
+func TestAssemble_embedsSBOM(t *testing.T) {
+	comp := model.Component{
+		Name:    "widget",
+		Version: "1.0.0",
+		Assets: []model.Asset{
+			{Filename: "widget-1.0.0.jar", DownloadURL: "http://example.com/widget.jar"},
+		},
+	}
+	rule := config.FormatRule{
+		IncludeAssetSuffixes: []string{".jar"},
+		SBOMSuffix:           "-cyclonedx.json",
+	}
+	fetch := func(ctx context.Context, downloadURL string) (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader("jar-content")), nil
+	}
+	sbomJSON := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6"}`)
+
+	buf, _, err := Assemble(context.Background(), comp, rule, fetch, "widget-1.0.0.bom.json", sbomJSON)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatalf("creating zip reader: %v", err)
+	}
+	if len(reader.File) != 2 {
+		t.Fatalf("zip has %d files, want 2", len(reader.File))
+	}
+
+	var found bool
+	for _, f := range reader.File {
+		if f.Name != "widget-1.0.0.bom.json" {
+			continue
+		}
+		found = true
+		rc, err := f.Open()
+		if err != nil {
+			t.Fatalf("opening embedded SBOM entry: %v", err)
+		}
+		defer func() { _ = rc.Close() }()
+		got, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatalf("reading embedded SBOM entry: %v", err)
+		}
+		if string(got) != string(sbomJSON) {
+			t.Fatalf("embedded SBOM content = %q, want %q", got, sbomJSON)
+		}
+	}
+	if !found {
+		t.Fatal("expected widget-1.0.0.bom.json to be embedded in zip")
 	}
 }

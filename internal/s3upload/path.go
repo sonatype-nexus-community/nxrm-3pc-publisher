@@ -38,16 +38,6 @@ func BundlePath(ecosystem, namespace, name, version string) string {
 	return path.Join("packages", ecosystem, namespace, name, version, filename)
 }
 
-// SBOMPath returns the S3 key for a component's SBOM peer file, using the
-// same prefix as BundlePath but with filename "<name>-<version>.bom.json".
-func SBOMPath(ecosystem, namespace, name, version string) string {
-	filename := name + "-" + version + ".bom.json"
-	if namespace == "" {
-		return path.Join("packages", ecosystem, name, version, filename)
-	}
-	return path.Join("packages", ecosystem, namespace, name, version, filename)
-}
-
 // VEXPath returns the S3 key for a VEX document: "vex/<filename>".
 func VEXPath(filename string) string {
 	return path.Join("vex", filename)

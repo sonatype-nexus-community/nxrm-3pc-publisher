@@ -17,6 +17,7 @@
 package pipeline
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"fmt"
@@ -28,6 +29,20 @@ import (
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/config"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/model"
 )
+
+func assertZipContains(t *testing.T, zipBytes []byte, wantFile string) {
+	t.Helper()
+	r, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	if err != nil {
+		t.Fatalf("reading zip: %v", err)
+	}
+	for _, f := range r.File {
+		if f.Name == wantFile {
+			return
+		}
+	}
+	t.Fatalf("expected zip to contain %q", wantFile)
+}
 
 type fakeUploader struct {
 	uploaded map[string][]byte
@@ -143,19 +158,16 @@ func TestPublish_withVulnerabilities(t *testing.T) {
 	if result.BundleKey != "packages/maven/org.example/widget/1.0.0/widget-1.0.0.zip" {
 		t.Errorf("BundleKey = %q", result.BundleKey)
 	}
-	if result.SBOMKey != "packages/maven/org.example/widget/1.0.0/widget-1.0.0.bom.json" {
-		t.Errorf("SBOMKey = %q", result.SBOMKey)
-	}
 	if result.VEXKey == "" {
 		t.Error("expected non-empty VEXKey when source has vulnerabilities")
 	}
 
-	if _, ok := uploader.uploaded[result.BundleKey]; !ok {
-		t.Error("expected bundle to be uploaded")
+	bundleBytes, ok := uploader.uploaded[result.BundleKey]
+	if !ok {
+		t.Fatal("expected bundle to be uploaded")
 	}
-	if _, ok := uploader.uploaded[result.SBOMKey]; !ok {
-		t.Error("expected SBOM to be uploaded")
-	}
+	assertZipContains(t, bundleBytes, "widget-1.0.0.bom.json")
+
 	if _, ok := uploader.uploaded[result.VEXKey]; !ok {
 		t.Error("expected VEX to be uploaded")
 	}

@@ -6,15 +6,16 @@ A single Go binary that watches one or more Nexus Repository Manager (NXRM)
 hosted repositories, and for each qualifying component version:
 
 1. Fetches the binary assets and vendor-authored CycloneDX document from NXRM.
-2. Assembles the flat `.zip` component bundle required by Sonatype's
-   Third-Party Component Catalog spec.
-3. Splits the single CycloneDX document into a conformant **SBOM** file and
+2. Splits the single CycloneDX document into a conformant **SBOM** file and
    one or more conformant **VEX** file(s) (the catalog spec requires these as
    separate documents; embedded vulnerability data is otherwise silently
    ignored by Sonatype's ingestion).
-4. Validates all three outputs against the spec's structural requirements.
-5. Uploads bundle + SBOM + VEX to the Sonatype-owned, immutable S3 bucket
-   using the path layout the spec defines.
+3. Assembles the flat `.zip` component bundle required by Sonatype's
+   Third-Party Component Catalog spec, **embedding the derived SBOM inside
+   it** (one of the spec's two allowed SBOM placements — see §5).
+4. Validates the bundle and VEX against the spec's structural requirements.
+5. Uploads bundle (SBOM included) + VEX to the Sonatype-owned, immutable S3
+   bucket using the path layout the spec defines.
 
 Three trigger modes share one pipeline:
 
@@ -47,11 +48,11 @@ NXRM coordinates (repo, group?, name, version)
         │                  via each AssetXO.DownloadUrl (plain net/http; client library
         │                  stops at metadata, not content)
         ▼
- [3] Assemble bundle     ── apply per-format include rules → flat zip in memory/tmp
-        │
-        ▼
- [4] Split CycloneDX     ── components/licenses/pedigree → SBOM doc
+ [3] Split CycloneDX     ── components/licenses/pedigree → SBOM doc
         │                   vulnerabilities/affects       → VEX doc(s)
+        ▼
+ [4] Assemble bundle     ── apply per-format include rules + embed SBOM doc
+        │                  → flat zip in memory/tmp
         ▼
  [5] Validate            ── structural checks against spec (§6)
         │
@@ -162,10 +163,17 @@ formats:
 
 - Config can override or extend `includeAssetSuffixes`/`sbomSuffix` per
   repository, but ships with sensible maven2/npm defaults.
-- The SBOM asset itself is *never* included inside the zip — it's uploaded to
-  S3 as a peer file per the spec, not embedded in the bundle.
+- The vendor's raw CycloneDX asset (matched by `sbomSuffix`) is *never*
+  included as-is inside the zip. Instead, the **derived SBOM document** (the
+  output of the CycloneDX split in §6, named per `SBOMFilename`) is embedded
+  in the bundle as `<name>-<version>.bom.json`. This is one of the two SBOM
+  placements the spec allows ("include the SBOM in the component archive
+  bundle **or** in the s3 directory as a peer to the component archive
+  bundle") — this tool embeds rather than uploading a separate peer object.
 - Bundle member filenames are taken as-is from NXRM asset paths (already
-  matching `<name>-<version>[-classifier].<ext>` by construction).
+  matching `<name>-<version>[-classifier].<ext>` by construction), except for
+  the embedded SBOM, which uses the derived filename above rather than the
+  vendor asset's own name.
 
 ## 6. CycloneDX Handling
 
@@ -176,7 +184,12 @@ in NXRM) into:
 
 - **SBOM** (`<name>-<version>.bom.json`): `bomFormat`, `specVersion`,
   `serialNumber`, `metadata`, `components`, `dependencies` carried through
-  unchanged; `vulnerabilities` stripped.
+  unchanged; `vulnerabilities` stripped. If `components` is empty/nil but
+  `metadata.component` is set, that component is folded into `components[]`
+  as the sole entry — real vendor CycloneDX documents commonly describe
+  their single subject library only via `metadata.component` (a standard,
+  valid CycloneDX pattern), and without this fold SBOM validation would
+  reject them for having zero components.
 - **VEX** (`<CVE>-<timestamp>.bom.json` for single-CVE, or
   `<timestamp>.bom.json` for multi-CVE): `bomFormat`, `specVersion`, a
   **new** `serialNumber` (VEX is a distinct BOM), `vulnerabilities` carried
@@ -210,7 +223,7 @@ abort the run.
   (required, no default) + optional `namespace` extraction rule + NXRM
   `name`/`version`:
   - `/packages/<ecosystem>/<namespace>/<name>/<version>/<name>-<version>.zip`
-  - peer SBOM at the same prefix
+    (SBOM embedded inside this bundle — see §5 — not uploaded separately)
   - VEX under `/vex/<vex-filename>`
 - Idempotency: `HeadObject` before every `PutObject`; if present, log
   "already exists, skipping" and move on — no local state store needed.

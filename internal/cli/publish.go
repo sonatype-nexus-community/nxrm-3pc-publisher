@@ -107,7 +107,7 @@ func RunPublish(ctx context.Context, args []string) error {
 }
 
 func logResult(name, version string, result pipeline.Result) {
-	log.Printf("published %s@%s: bundle=%s (skipped=%v) sbom=%s (skipped=%v)", name, version, result.BundleKey, result.BundleSkipped, result.SBOMKey, result.SBOMSkipped)
+	log.Printf("published %s@%s: bundle=%s (skipped=%v, includes embedded SBOM)", name, version, result.BundleKey, result.BundleSkipped)
 	if result.VEXKey != "" {
 		log.Printf("published %s@%s: vex=%s (skipped=%v)", name, version, result.VEXKey, result.VEXSkipped)
 	}

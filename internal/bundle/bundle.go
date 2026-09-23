@@ -31,9 +31,11 @@ import (
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/model"
 )
 
-// Assemble creates a flat zip archive containing the component's binary assets
-// that match the include rules, excluding the SBOM asset. It returns the zip
-// bytes, the bundle filename (<name>-<version>.zip), and any error encountered.
+// Assemble creates a flat zip archive containing the component's binary
+// assets that match the include rules, plus the derived SBOM document named
+// per the spec's SBOM naming convention (see cyclonedx.SBOMFilename). It
+// returns the zip bytes, the bundle filename (<name>-<version>.zip), and any
+// error encountered.
 //
 // The fetch function is called with each asset's download URL to retrieve its
 // content. It must return an io.ReadCloser that the caller closes.
@@ -42,6 +44,8 @@ func Assemble(
 	comp model.Component,
 	rule config.FormatRule,
 	fetch func(ctx context.Context, downloadURL string) (io.ReadCloser, error),
+	sbomFilename string,
+	sbomJSON []byte,
 ) (*bytes.Buffer, string, error) {
 	buf := new(bytes.Buffer)
 	w := zip.NewWriter(buf)
@@ -68,6 +72,16 @@ func Assemble(
 			if err != nil {
 				return nil, "", err
 			}
+		}
+	}
+
+	if sbomFilename != "" {
+		fw, err := w.Create(sbomFilename)
+		if err != nil {
+			return nil, "", fmt.Errorf("creating zip entry for %q: %w", sbomFilename, err)
+		}
+		if _, err := fw.Write(sbomJSON); err != nil {
+			return nil, "", fmt.Errorf("writing SBOM %q to zip: %w", sbomFilename, err)
 		}
 	}
 

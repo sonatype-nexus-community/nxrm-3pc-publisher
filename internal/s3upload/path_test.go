@@ -75,51 +75,6 @@ func TestBundlePath(t *testing.T) {
 	}
 }
 
-func TestSBOMPath(t *testing.T) {
-	tests := []struct {
-		name      string
-		ecosystem string
-		namespace string
-		pkgName   string
-		version   string
-		want      string
-	}{
-		{
-			name:      "Maven with namespace",
-			ecosystem: "maven",
-			namespace: "org.springframework.boot",
-			pkgName:   "spring-boot",
-			version:   "4.1.1-patched-1",
-			want:      "packages/maven/org.springframework.boot/spring-boot/4.1.1-patched-1/spring-boot-4.1.1-patched-1.bom.json",
-		},
-		{
-			name:      "npm without namespace",
-			ecosystem: "npm",
-			namespace: "",
-			pkgName:   "react",
-			version:   "19.2.8-patched-1",
-			want:      "packages/npm/react/19.2.8-patched-1/react-19.2.8-patched-1.bom.json",
-		},
-		{
-			name:      "npm with namespace/scope",
-			ecosystem: "npm",
-			namespace: "@babel",
-			pkgName:   "core",
-			version:   "7.26.0-patched-1",
-			want:      "packages/npm/@babel/core/7.26.0-patched-1/core-7.26.0-patched-1.bom.json",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := SBOMPath(tt.ecosystem, tt.namespace, tt.pkgName, tt.version)
-			if got != tt.want {
-				t.Errorf("SBOMPath() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestVEXPath(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -42,12 +42,12 @@ import (
 
 // Result summarizes what happened when publishing one component: which S3
 // objects were uploaded vs. already present (skipped as a no-op under the
-// bucket's immutability/idempotency rules), for caller-side logging.
+// bucket's immutability/idempotency rules), for caller-side logging. The
+// SBOM is embedded in the bundle .zip (see BundleKey), not uploaded as its
+// own S3 object.
 type Result struct {
 	BundleKey     string
 	BundleSkipped bool
-	SBOMKey       string
-	SBOMSkipped   bool
 	VEXKey        string // empty if the component had no vulnerabilities
 	VEXSkipped    bool
 }
@@ -100,7 +100,13 @@ func Publish(ctx context.Context, fetch FetchFunc, comp model.Component, repoCfg
 		}
 	}
 
-	bundleBuf, bundleFilename, err := bundle.Assemble(ctx, comp, formatRule, fetch)
+	sbomJSON, err := encodeBOM(sbom)
+	if err != nil {
+		return Result{}, fmt.Errorf("encoding SBOM for %s@%s: %w", comp.Name, comp.Version, err)
+	}
+	sbomFilename := cyclonedx.SBOMFilename(comp.Name, comp.Version)
+
+	bundleBuf, bundleFilename, err := bundle.Assemble(ctx, comp, formatRule, fetch, sbomFilename, sbomJSON)
 	if err != nil {
 		return Result{}, fmt.Errorf("assembling bundle for %s@%s: %w", comp.Name, comp.Version, err)
 	}
@@ -115,16 +121,6 @@ func Publish(ctx context.Context, fetch FetchFunc, comp model.Component, repoCfg
 	result.BundleSkipped, err = uploader.Upload(ctx, result.BundleKey, bundleBuf, "application/zip")
 	if err != nil {
 		return Result{}, fmt.Errorf("uploading bundle to %q: %w", result.BundleKey, err)
-	}
-
-	sbomJSON, err := encodeBOM(sbom)
-	if err != nil {
-		return Result{}, fmt.Errorf("encoding SBOM for %s@%s: %w", comp.Name, comp.Version, err)
-	}
-	result.SBOMKey = s3upload.SBOMPath(repoCfg.Ecosystem, namespace, comp.Name, comp.Version)
-	result.SBOMSkipped, err = uploader.Upload(ctx, result.SBOMKey, bytes.NewReader(sbomJSON), "application/json")
-	if err != nil {
-		return Result{}, fmt.Errorf("uploading SBOM to %q: %w", result.SBOMKey, err)
 	}
 
 	if vex != nil {
