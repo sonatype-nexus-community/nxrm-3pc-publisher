@@ -122,6 +122,52 @@ func TestClient_FetchAssetContent(t *testing.T) {
 	}
 }
 
+func TestClient_FetchAssetContent_sendsBasicAuth(t *testing.T) {
+	var gotUser, gotPass string
+	var gotOK bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, gotPass, gotOK = r.BasicAuth()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("binary-content"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(Options{BaseURL: srv.URL, Username: "alice", Password: "secret"})
+	rc, err := c.FetchAssetContent(context.Background(), srv.URL+"/asset.jar")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	if !gotOK {
+		t.Fatal("expected request to carry basic auth credentials")
+	}
+	if gotUser != "alice" || gotPass != "secret" {
+		t.Errorf("BasicAuth() = (%q, %q), want (%q, %q)", gotUser, gotPass, "alice", "secret")
+	}
+}
+
+func TestClient_FetchAssetContent_noAuthConfigured(t *testing.T) {
+	var gotOK bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _, gotOK = r.BasicAuth()
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("binary-content"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(Options{BaseURL: srv.URL})
+	rc, err := c.FetchAssetContent(context.Background(), srv.URL+"/asset.jar")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() { _ = rc.Close() }()
+
+	if gotOK {
+		t.Error("expected no basic auth header when no credentials configured")
+	}
+}
+
 func TestClient_FetchAssetContent_notFound(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

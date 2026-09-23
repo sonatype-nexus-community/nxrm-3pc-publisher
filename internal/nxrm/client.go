@@ -186,11 +186,16 @@ func (c *Client) ListComponentsPage(ctx context.Context, repo, continuationToken
 
 // FetchAssetContent downloads the content at an asset's DownloadURL. The
 // generated NXRM client only models metadata, not content, so this uses a
-// plain HTTP GET against the URL NXRM itself returned.
+// plain HTTP GET against the URL NXRM itself returned. Unlike calls made
+// through the generated client, this request is not covered by withAuth's
+// context value, so credentials are attached directly here.
 func (c *Client) FetchAssetContent(ctx context.Context, downloadURL string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building request for %q: %w", downloadURL, err)
+	}
+	if c.username != "" || c.password != "" {
+		req.SetBasicAuth(c.username, c.password)
 	}
 
 	resp, err := c.httpClient.Do(req)

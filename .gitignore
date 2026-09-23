@@ -1,5 +1,10 @@
 # Go
 /nxrm-3pc-publisher
+
+# local config files (may contain real credentials)
+/config.yaml
+/config.local.yaml
+/out/
 *.exe
 *.exe~
 *.dll

@@ -41,9 +41,11 @@ func RunPublish(ctx context.Context, args []string) error {
 	group := fs.String("group", "", "component group/namespace coordinate (optional, ecosystem-dependent)")
 	name := fs.String("name", "", "component name (required)")
 	version := fs.String("version", "", "component version (required)")
+	outputDir := fs.String("output-dir", "", "write bundle/SBOM/VEX to this local directory instead of uploading to S3 (for inspection/dry-run)")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: nxrm-3pc-publisher publish -config <path> -repository <name> -name <name> -version <version> [-group <group>]")
+		fmt.Fprintln(os.Stderr, "Usage: nxrm-3pc-publisher publish -config <path> -repository <name> -name <name> -version <version> [-group <group>] [-output-dir <path>]")
 		fmt.Fprintln(os.Stderr, "\nResolves a single component in NXRM by coordinates and publishes its bundle/SBOM/VEX to S3.")
+		fmt.Fprintln(os.Stderr, "With -output-dir, writes the same files to a local directory instead of S3 (s3: config is ignored).")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -81,9 +83,18 @@ func RunPublish(ctx context.Context, args []string) error {
 		return fmt.Errorf("no bundle assembly rule configured for NXRM format %q (see formats: in config)", comp.Format)
 	}
 
-	uploader, err := s3upload.NewUploader(ctx, cfg.S3.Bucket, cfg.S3.Region)
-	if err != nil {
-		return fmt.Errorf("initializing S3 uploader: %w", err)
+	var uploader pipeline.Uploader
+	if *outputDir != "" {
+		if err := os.MkdirAll(*outputDir, 0o755); err != nil {
+			return fmt.Errorf("creating output directory %q: %w", *outputDir, err)
+		}
+		uploader = &localUploader{dir: *outputDir}
+		log.Printf("writing output to local directory %q instead of S3", *outputDir)
+	} else {
+		uploader, err = s3upload.NewUploader(ctx, cfg.S3.Bucket, cfg.S3.Region)
+		if err != nil {
+			return fmt.Errorf("initializing S3 uploader: %w", err)
+		}
 	}
 
 	result, err := pipeline.Publish(ctx, client.FetchAssetContent, comp, repoCfg, formatRule, uploader)

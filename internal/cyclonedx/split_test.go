@@ -170,6 +170,72 @@ func TestSplit(t *testing.T) {
 		assert.Equal(t, "urn:cdx:existing-ref/1#something", (*(*vex.Vulnerabilities)[0].Affects)[0].Ref)
 		assert.Equal(t, "urn:uuid:already-a-uuid-ref", (*(*vex.Vulnerabilities)[0].Affects)[1].Ref)
 	})
+
+	t.Run("folds metadata.component into components when components is empty", func(t *testing.T) {
+		source := &cdx.BOM{
+			BOMFormat:    "CycloneDX",
+			SpecVersion:  cdx.SpecVersion1_7,
+			SerialNumber: "urn:uuid:65a2d699-7681-3085-85e4-be6c32110d50",
+			Version:      1,
+			Metadata: &cdx.Metadata{
+				Component: &cdx.Component{
+					BOMRef:  "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.13.5.1-osera-00007",
+					Type:    cdx.ComponentTypeLibrary,
+					Group:   "com.fasterxml.jackson.core",
+					Name:    "jackson-core",
+					Version: "2.13.5.1-osera-00007",
+					Licenses: &cdx.Licenses{
+						{License: &cdx.License{ID: "Apache-2.0"}},
+					},
+				},
+			},
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{
+					ID: "CVE-2025-52999",
+					Affects: &[]cdx.Affects{
+						{Ref: "pkg:maven/com.fasterxml.jackson.core/jackson-core@2.13.5.1-osera-00007"},
+					},
+				},
+			},
+		}
+
+		jsonBytes := mustMarshalBOM(t, source)
+		sbom, vex, err := Split(bytes.NewReader(jsonBytes))
+		require.NoError(t, err)
+		require.NotNil(t, sbom)
+		require.NotNil(t, sbom.Components)
+		require.Len(t, *sbom.Components, 1)
+		assert.Equal(t, "jackson-core", (*sbom.Components)[0].Name)
+
+		require.NoError(t, ValidateSBOM(sbom))
+
+		require.NotNil(t, vex)
+		require.NotNil(t, vex.Vulnerabilities)
+		gotRef := (*(*vex.Vulnerabilities)[0].Affects)[0].Ref
+		assert.Equal(t, "urn:cdx:65a2d699-7681-3085-85e4-be6c32110d50/1#pkg%3Amaven%2Fcom.fasterxml.jackson.core%2Fjackson-core%402.13.5.1-osera-00007", gotRef)
+	})
+
+	t.Run("does not override a non-empty components list with metadata.component", func(t *testing.T) {
+		source := &cdx.BOM{
+			BOMFormat:    "CycloneDX",
+			SpecVersion:  cdx.SpecVersion1_5,
+			SerialNumber: "urn:uuid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+			Version:      1,
+			Metadata: &cdx.Metadata{
+				Component: &cdx.Component{Name: "should-not-appear", Type: cdx.ComponentTypeLibrary},
+			},
+			Components: &[]cdx.Component{
+				{BOMRef: "test-component", Name: "actual-component", Version: "1.0.0", Type: cdx.ComponentTypeLibrary},
+			},
+		}
+
+		jsonBytes := mustMarshalBOM(t, source)
+		sbom, _, err := Split(bytes.NewReader(jsonBytes))
+		require.NoError(t, err)
+		require.NotNil(t, sbom.Components)
+		require.Len(t, *sbom.Components, 1)
+		assert.Equal(t, "actual-component", (*sbom.Components)[0].Name)
+	})
 }
 
 func mustMarshalBOM(t *testing.T, bom *cdx.BOM) []byte {

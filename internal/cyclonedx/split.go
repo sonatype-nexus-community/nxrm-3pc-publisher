@@ -47,7 +47,7 @@ func Split(r io.Reader) (sbom *cdx.BOM, vex *cdx.BOM, err error) {
 		SerialNumber:    source.SerialNumber,
 		Version:         source.Version,
 		Metadata:        source.Metadata,
-		Components:      source.Components,
+		Components:      withMetadataComponent(source.Components, source.Metadata),
 		Dependencies:    source.Dependencies,
 		Vulnerabilities: nil,
 	}
@@ -65,6 +65,21 @@ func Split(r io.Reader) (sbom *cdx.BOM, vex *cdx.BOM, err error) {
 	}
 
 	return sbom, vex, nil
+}
+
+// withMetadataComponent folds metadata.component into the SBOM's components
+// list when components is empty/nil. CycloneDX allows a BOM describing a
+// single library to declare its subject only via metadata.component rather
+// than the top-level components array; Sonatype's cataloging still needs
+// that component in components[] to be recognized as an SBOM entry.
+func withMetadataComponent(components *[]cdx.Component, metadata *cdx.Metadata) *[]cdx.Component {
+	if components != nil && len(*components) > 0 {
+		return components
+	}
+	if metadata == nil || metadata.Component == nil {
+		return components
+	}
+	return &[]cdx.Component{*metadata.Component}
 }
 
 // copyVulnerabilities deep-copies vulnerabilities and rewrites affects refs
