@@ -20,10 +20,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/config"
+	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/logging"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/nxrm"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/pipeline"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/s3upload"
@@ -37,14 +37,22 @@ func RunBackfill(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("backfill", flag.ExitOnError)
 	configPath := fs.String("config", "", "path to config YAML file (required)")
 	repository := fs.String("repository", "", "NXRM repository name to backfill (required)")
+	logLevel := fs.String("log-level", "info", "log level: error, warn, info, or trace")
+	logFormat := fs.String("log-format", "text", "log format: text or json")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: nxrm-3pc-publisher backfill -config <path> -repository <name>")
+		fmt.Fprintln(os.Stderr, "Usage: nxrm-3pc-publisher backfill -config <path> -repository <name> [-log-level <level>] [-log-format <format>]")
 		fmt.Fprintln(os.Stderr, "\nEnumerates every component in the given NXRM repository and publishes each to S3.")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+
+	level, err := logging.ParseLevel(*logLevel)
+	if err != nil {
+		return err
+	}
+	logger := logging.New(level, *logFormat, os.Stderr)
 
 	if *configPath == "" || *repository == "" {
 		fs.Usage()
@@ -65,9 +73,9 @@ func RunBackfill(ctx context.Context, args []string) error {
 		BaseURL:  cfg.NXRM.URL,
 		Username: cfg.NXRM.Auth.Username,
 		Password: cfg.NXRM.Auth.Password,
-	})
+	}, logger)
 
-	uploader, err := s3upload.NewUploader(ctx, cfg.S3.Bucket, cfg.S3.Region)
+	uploader, err := s3upload.NewUploader(ctx, cfg.S3.Bucket, cfg.S3.Region, logger)
 	if err != nil {
 		return fmt.Errorf("initializing S3 uploader: %w", err)
 	}
@@ -79,23 +87,22 @@ func RunBackfill(ctx context.Context, args []string) error {
 		if err != nil {
 			return fmt.Errorf("listing components in %q: %w", *repository, err)
 		}
+		logger.Info("fetched component page", "repository", *repository, "count", len(items), "hasNextPage", nextToken != "")
 
 		for _, comp := range items {
 			formatRule, ok := cfg.FormatRuleFor(comp.Format)
 			if !ok {
-				log.Printf("skipping %s@%s: no bundle assembly rule configured for NXRM format %q", comp.Name, comp.Version, comp.Format)
+				logger.Error("skipping component: no bundle assembly rule configured", "name", comp.Name, "version", comp.Version, "format", comp.Format)
 				failed++
 				continue
 			}
 
-			result, err := pipeline.Publish(ctx, client.FetchAssetContent, comp, repoCfg, formatRule, uploader)
-			if err != nil {
-				log.Printf("skipping %s@%s: %v", comp.Name, comp.Version, err)
+			if _, err := pipeline.Publish(ctx, logger, client.FetchAssetContent, comp, repoCfg, formatRule, uploader); err != nil {
+				logger.Error("skipping component", "name", comp.Name, "version", comp.Version, "error", err)
 				failed++
 				continue
 			}
 
-			logResult(comp.Name, comp.Version, result)
 			succeeded++
 		}
 
@@ -105,7 +112,7 @@ func RunBackfill(ctx context.Context, args []string) error {
 		continuationToken = nextToken
 	}
 
-	log.Printf("backfill of %q complete: %d succeeded, %d failed/skipped", *repository, succeeded, failed)
+	logger.Info("backfill complete", "repository", *repository, "succeeded", succeeded, "failed", failed)
 	if failed > 0 {
 		return fmt.Errorf("backfill completed with %d failed/skipped component(s)", failed)
 	}

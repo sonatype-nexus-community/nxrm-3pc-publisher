@@ -19,11 +19,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/cli"
+	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/logging"
 )
 
 // version and commit are set via -ldflags at build time (see .goreleaser.yml).
@@ -62,7 +64,16 @@ func main() {
 	}
 
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
+		// Each subcommand builds its own -log-level/-log-format-configured
+		// logger and threads it through everything it calls; by the time an
+		// error reaches here, that logger has already gone out of scope. This
+		// fallback (fixed at INFO/text) is only for errors a subcommand
+		// returns before or without having logged them itself (e.g. a flag
+		// parse failure) -- per this tool's "log once, at the handling point"
+		// convention (internal/logging), this is that point for anything
+		// that escapes all the way to main.
+		fallback := logging.New(slog.LevelInfo, "text", os.Stderr)
+		fallback.Error(err.Error())
 		os.Exit(1)
 	}
 }

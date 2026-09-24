@@ -310,7 +310,48 @@ for NXRM, that means wrapping the pieces of `nexus-repo-api-client-go` this
 tool calls behind a small internal interface, so tests don't hit a live
 server.
 
-## 12. Open Items / Future Work
+## 12. Logging
+
+`internal/logging` builds this tool's `*slog.Logger` (stdlib `log/slog`, no
+new dependency). Four levels are in play — slog's built-in `Debug` is
+unused:
+
+- **TRACE** (`logging.LevelTrace`, below `slog.LevelDebug`): fine-grained
+  step tracing — per-asset include/exclude decisions in bundle assembly,
+  per-NXRM-call entry/exit, S3 HeadObject outcomes. Off by default; renders
+  as `TRACE` (not slog's default `DEBUG-4`) via a `ReplaceAttr` hook.
+- **INFO** (default level): pipeline step boundaries — resolved component,
+  fetched CycloneDX asset, split into SBOM/VEX, validated, assembled bundle,
+  uploaded (with `skipped` noted).
+- **WARNING**: non-critical data conditions or graceful degradation that
+  don't stop the run — an unparseable VEX timestamp falling back to now, a
+  VEX affects-ref left unrewritten because the SBOM has no serialNumber, a
+  webhook ignored because its repository isn't configured or its signature
+  didn't verify.
+- **ERROR**: a failure that aborts the current operation (this publish, this
+  webhook delivery, this backfill component).
+
+**Convention — log once, at the handling point.** Inner packages (`nxrm`,
+`bundle`, `cyclonedx`, `s3upload`, `pipeline`) return wrapped errors as
+always and do not log them. Only the layer that decides what to do about a
+failure logs it as ERROR: `backfill`'s and `serve`'s per-component
+skip-and-continue loops, or `main`'s final exit for `publish`/`backfill`'s
+own returned error. This keeps one root cause from producing several
+duplicate ERROR lines as it propagates up the stack.
+
+**Configuration**: each subcommand takes its own `-log-level`
+(`error|warn|info|trace`, default `info`) and `-log-format` (`text|json`,
+default `text`) flags, parsed and built into a logger before `config.Load`
+so even a bad config file is logged at the level the operator asked for.
+`serve` deployments behind log aggregation (Splunk/ELK/CloudWatch) should use
+`-log-format json`.
+
+**Credential safety**: never log `config.Config`, `config.NXRM`,
+`config.NXRMAuth`, or `config.Webhook` wholesale, `nxrm.Client`'s
+`username`/`password` fields, the webhook `secret`, or a raw webhook request
+body — at any level, including TRACE.
+
+## 13. Open Items / Future Work
 
 - **Upstream-first policy**: `nexus-repo-api-client-go` is a sibling
   Sonatype Nexus Community repo, not a third-party dependency — any missing

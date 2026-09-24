@@ -17,6 +17,7 @@
 package cyclonedx
 
 import (
+	"log/slog"
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -34,8 +35,9 @@ func SBOMFilename(name, version string) string {
 //
 // The timestamp comes from the VEX BOM's Metadata.Timestamp if set and
 // parseable as RFC3339, otherwise time.Now().UTC() formatted the same way.
-func VEXFilename(vex *cdx.BOM) string {
-	timestamp := extractTimestamp(vex)
+// logger must not be nil.
+func VEXFilename(logger *slog.Logger, vex *cdx.BOM) string {
+	timestamp := extractTimestamp(logger, vex)
 
 	if vex.Vulnerabilities != nil && len(*vex.Vulnerabilities) == 1 {
 		vuln := (*vex.Vulnerabilities)[0]
@@ -48,11 +50,12 @@ func VEXFilename(vex *cdx.BOM) string {
 }
 
 // extractTimestamp returns the timestamp to use for VEX naming.
-func extractTimestamp(vex *cdx.BOM) string {
+func extractTimestamp(logger *slog.Logger, vex *cdx.BOM) string {
 	if vex.Metadata != nil && vex.Metadata.Timestamp != "" {
 		if t, err := time.Parse(time.RFC3339, vex.Metadata.Timestamp); err == nil {
 			return t.UTC().Format(time.RFC3339)
 		}
+		logger.Warn("VEX metadata timestamp unparseable, using current time instead", "timestamp", vex.Metadata.Timestamp)
 	}
 
 	return time.Now().UTC().Format(time.RFC3339)

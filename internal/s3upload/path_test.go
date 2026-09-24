@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -29,6 +30,10 @@ import (
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/config"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/model"
 )
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.DiscardHandler)
+}
 
 func TestBundlePath(t *testing.T) {
 	tests := []struct {
@@ -267,6 +272,7 @@ func TestUpload(t *testing.T) {
 			uploader := &Uploader{
 				client: mock,
 				bucket: "test-bucket",
+				logger: discardLogger(),
 			}
 
 			skipped, err := uploader.Upload(context.Background(), tt.key, strings.NewReader(tt.data), tt.contentType)
@@ -312,6 +318,7 @@ func TestUploadReadsEntireReader(t *testing.T) {
 	uploader := &Uploader{
 		client: mock,
 		bucket: "test-bucket",
+		logger: discardLogger(),
 	}
 
 	data := strings.NewReader("test content for reader")

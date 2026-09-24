@@ -32,10 +32,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
 	v395 "github.com/sonatype-nexus-community/nexus-repo-api-client-go/v395"
 
+	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/logging"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/model"
 )
 
@@ -45,6 +47,7 @@ type Client struct {
 	username   string
 	password   string
 	httpClient *http.Client
+	logger     *slog.Logger
 }
 
 // Options configures a new Client.
@@ -60,8 +63,9 @@ type Options struct {
 }
 
 // NewClient builds a Client wrapping nexus-repo-api-client-go, configured
-// against the given NXRM server.
-func NewClient(opts Options) *Client {
+// against the given NXRM server. logger must not be nil; use
+// slog.New(slog.DiscardHandler) to silence logging (e.g. in tests).
+func NewClient(opts Options, logger *slog.Logger) *Client {
 	httpClient := opts.HTTPClient
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -77,11 +81,16 @@ func NewClient(opts Options) *Client {
 	cfg.Scheme = scheme
 	cfg.Host = host
 
+	if opts.Username == "" && opts.Password == "" {
+		logger.Warn("NXRM client configured without credentials; requests will be unauthenticated", "baseURL", opts.BaseURL)
+	}
+
 	return &Client{
 		api:        v395.NewAPIClient(cfg),
 		username:   opts.Username,
 		password:   opts.Password,
 		httpClient: httpClient,
+		logger:     logger,
 	}
 }
 
@@ -120,6 +129,8 @@ func splitScheme(baseURL string) (scheme, host string) {
 // than one component matches (coordinates are expected to be unique for a
 // single hosted component version).
 func (c *Client) ResolveByCoordinates(ctx context.Context, repo, group, name, version string) (model.Component, error) {
+	c.logger.Log(ctx, logging.LevelTrace, "searching NXRM", "repository", repo, "group", group, "name", name, "version", version)
+
 	req := c.api.SearchAPI.ListSearch(c.withAuth(ctx)).
 		Repository(repo).Name(name).Version(version)
 	if group != "" {
@@ -136,6 +147,7 @@ func (c *Client) ResolveByCoordinates(ctx context.Context, repo, group, name, ve
 	case 0:
 		return model.Component{}, fmt.Errorf("no component found in repository %q for %s/%s@%s", repo, group, name, version)
 	case 1:
+		c.logger.Log(ctx, logging.LevelTrace, "NXRM search resolved component", "repository", repo, "name", name, "version", version)
 		return toComponent(items[0]), nil
 	default:
 		return model.Component{}, fmt.Errorf("ambiguous coordinates: %d components found in repository %q for %s/%s@%s", len(items), repo, group, name, version)
@@ -148,6 +160,8 @@ func (c *Client) ResolveByCoordinates(ctx context.Context, repo, group, name, ve
 // Note: despite the plural name, ComponentsAPI.GetComponents(ctx, id) is
 // NXRM's "get a single component by id" endpoint in this client version.
 func (c *Client) ResolveByID(ctx context.Context, id string) (model.Component, error) {
+	c.logger.Log(ctx, logging.LevelTrace, "fetching NXRM component by id", "componentId", id)
+
 	comp, _, err := c.api.ComponentsAPI.GetComponents(c.withAuth(ctx), id).Execute()
 	if err != nil {
 		return model.Component{}, fmt.Errorf("fetching NXRM component %q: %w", id, err)
@@ -168,6 +182,8 @@ func (c *Client) ResolveByID(ctx context.Context, id string) (model.Component, e
 // directly here rather than substituting SearchAPI.ListSearch as a
 // workaround.
 func (c *Client) ListComponentsPage(ctx context.Context, repo, continuationToken string) (items []model.Component, nextToken string, err error) {
+	c.logger.Log(ctx, logging.LevelTrace, "listing NXRM components page", "repository", repo, "continuationToken", continuationToken)
+
 	req := c.api.ComponentsAPI.ListComponents(c.withAuth(ctx)).Repository(repo)
 	if continuationToken != "" {
 		req = req.ContinuationToken(continuationToken)
@@ -181,7 +197,9 @@ func (c *Client) ListComponentsPage(ctx context.Context, repo, continuationToken
 	for _, comp := range page.GetItems() {
 		items = append(items, toComponent(comp))
 	}
-	return items, page.GetContinuationToken(), nil
+	nextToken = page.GetContinuationToken()
+	c.logger.Log(ctx, logging.LevelTrace, "listed NXRM components page", "repository", repo, "count", len(items), "hasNextPage", nextToken != "")
+	return items, nextToken, nil
 }
 
 // FetchAssetContent downloads the content at an asset's DownloadURL. The
@@ -190,6 +208,8 @@ func (c *Client) ListComponentsPage(ctx context.Context, repo, continuationToken
 // through the generated client, this request is not covered by withAuth's
 // context value, so credentials are attached directly here.
 func (c *Client) FetchAssetContent(ctx context.Context, downloadURL string) (io.ReadCloser, error) {
+	c.logger.Log(ctx, logging.LevelTrace, "fetching NXRM asset content", "downloadURL", downloadURL)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("building request for %q: %w", downloadURL, err)

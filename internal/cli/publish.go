@@ -23,10 +23,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/config"
+	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/logging"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/nxrm"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/pipeline"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/s3upload"
@@ -42,8 +42,10 @@ func RunPublish(ctx context.Context, args []string) error {
 	name := fs.String("name", "", "component name (required)")
 	version := fs.String("version", "", "component version (required)")
 	outputDir := fs.String("output-dir", "", "write bundle/SBOM/VEX to this local directory instead of uploading to S3 (for inspection/dry-run)")
+	logLevel := fs.String("log-level", "info", "log level: error, warn, info, or trace")
+	logFormat := fs.String("log-format", "text", "log format: text or json")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "Usage: nxrm-3pc-publisher publish -config <path> -repository <name> -name <name> -version <version> [-group <group>] [-output-dir <path>]")
+		fmt.Fprintln(os.Stderr, "Usage: nxrm-3pc-publisher publish -config <path> -repository <name> -name <name> -version <version> [-group <group>] [-output-dir <path>] [-log-level <level>] [-log-format <format>]")
 		fmt.Fprintln(os.Stderr, "\nResolves a single component in NXRM by coordinates and publishes its bundle/SBOM/VEX to S3.")
 		fmt.Fprintln(os.Stderr, "With -output-dir, writes the same files to a local directory instead of S3 (s3: config is ignored).")
 		fs.PrintDefaults()
@@ -51,6 +53,12 @@ func RunPublish(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+
+	level, err := logging.ParseLevel(*logLevel)
+	if err != nil {
+		return err
+	}
+	logger := logging.New(level, *logFormat, os.Stderr)
 
 	if *configPath == "" || *repository == "" || *name == "" || *version == "" {
 		fs.Usage()
@@ -71,12 +79,13 @@ func RunPublish(ctx context.Context, args []string) error {
 		BaseURL:  cfg.NXRM.URL,
 		Username: cfg.NXRM.Auth.Username,
 		Password: cfg.NXRM.Auth.Password,
-	})
+	}, logger)
 
 	comp, err := client.ResolveByCoordinates(ctx, *repository, *group, *name, *version)
 	if err != nil {
 		return fmt.Errorf("resolving component: %w", err)
 	}
+	logger.Info("resolved component", "repository", *repository, "name", comp.Name, "version", comp.Version, "format", comp.Format)
 
 	formatRule, ok := cfg.FormatRuleFor(comp.Format)
 	if !ok {
@@ -88,27 +97,18 @@ func RunPublish(ctx context.Context, args []string) error {
 		if err := os.MkdirAll(*outputDir, 0o755); err != nil {
 			return fmt.Errorf("creating output directory %q: %w", *outputDir, err)
 		}
-		uploader = &localUploader{dir: *outputDir}
-		log.Printf("writing output to local directory %q instead of S3", *outputDir)
+		uploader = &localUploader{dir: *outputDir, logger: logger}
+		logger.Info("writing output to local directory instead of S3", "dir", *outputDir)
 	} else {
-		uploader, err = s3upload.NewUploader(ctx, cfg.S3.Bucket, cfg.S3.Region)
+		uploader, err = s3upload.NewUploader(ctx, cfg.S3.Bucket, cfg.S3.Region, logger)
 		if err != nil {
 			return fmt.Errorf("initializing S3 uploader: %w", err)
 		}
 	}
 
-	result, err := pipeline.Publish(ctx, client.FetchAssetContent, comp, repoCfg, formatRule, uploader)
-	if err != nil {
+	if _, err := pipeline.Publish(ctx, logger, client.FetchAssetContent, comp, repoCfg, formatRule, uploader); err != nil {
 		return fmt.Errorf("publishing %s@%s: %w", comp.Name, comp.Version, err)
 	}
 
-	logResult(comp.Name, comp.Version, result)
 	return nil
-}
-
-func logResult(name, version string, result pipeline.Result) {
-	log.Printf("published %s@%s: bundle=%s (skipped=%v, includes embedded SBOM)", name, version, result.BundleKey, result.BundleSkipped)
-	if result.VEXKey != "" {
-		log.Printf("published %s@%s: vex=%s (skipped=%v)", name, version, result.VEXKey, result.VEXSkipped)
-	}
 }

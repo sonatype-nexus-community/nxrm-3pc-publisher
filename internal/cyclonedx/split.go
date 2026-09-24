@@ -20,6 +20,7 @@ package cyclonedx
 
 import (
 	"io"
+	"log/slog"
 	"net/url"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -33,8 +34,8 @@ import (
 // The SBOM preserves the source's serialNumber; the VEX gets a new distinct
 // serialNumber (VEX is a separate BOM). Vulnerability affects refs are
 // rewritten to BOM-Links pointing at the SBOM when they look like plain
-// bom-refs (not already fully-qualified URNs).
-func Split(r io.Reader) (sbom *cdx.BOM, vex *cdx.BOM, err error) {
+// bom-refs (not already fully-qualified URNs). logger must not be nil.
+func Split(logger *slog.Logger, r io.Reader) (sbom *cdx.BOM, vex *cdx.BOM, err error) {
 	var source cdx.BOM
 	decoder := cdx.NewBOMDecoder(r, cdx.BOMFileFormatJSON)
 	if err := decoder.Decode(&source); err != nil {
@@ -47,7 +48,7 @@ func Split(r io.Reader) (sbom *cdx.BOM, vex *cdx.BOM, err error) {
 		SerialNumber:    source.SerialNumber,
 		Version:         source.Version,
 		Metadata:        source.Metadata,
-		Components:      withMetadataComponent(source.Components, source.Metadata),
+		Components:      withMetadataComponent(logger, source.Components, source.Metadata),
 		Dependencies:    source.Dependencies,
 		Vulnerabilities: nil,
 	}
@@ -61,7 +62,7 @@ func Split(r io.Reader) (sbom *cdx.BOM, vex *cdx.BOM, err error) {
 		BOMFormat:       source.BOMFormat,
 		SpecVersion:     source.SpecVersion,
 		SerialNumber:    vexSerial,
-		Vulnerabilities: copyVulnerabilities(source.Vulnerabilities, sbom),
+		Vulnerabilities: copyVulnerabilities(logger, source.Vulnerabilities, sbom),
 	}
 
 	return sbom, vex, nil
@@ -72,11 +73,12 @@ func Split(r io.Reader) (sbom *cdx.BOM, vex *cdx.BOM, err error) {
 // single library to declare its subject only via metadata.component rather
 // than the top-level components array; Sonatype's cataloging still needs
 // that component in components[] to be recognized as an SBOM entry.
-func withMetadataComponent(components *[]cdx.Component, metadata *cdx.Metadata) *[]cdx.Component {
+func withMetadataComponent(logger *slog.Logger, components *[]cdx.Component, metadata *cdx.Metadata) *[]cdx.Component {
 	if components != nil && len(*components) > 0 {
 		return components
 	}
 	if metadata == nil || metadata.Component == nil {
+		logger.Warn("CycloneDX document has no components[] and no metadata.component; SBOM will have zero components")
 		return components
 	}
 	return &[]cdx.Component{*metadata.Component}
@@ -84,7 +86,7 @@ func withMetadataComponent(components *[]cdx.Component, metadata *cdx.Metadata) 
 
 // copyVulnerabilities deep-copies vulnerabilities and rewrites affects refs
 // to BOM-Links where appropriate.
-func copyVulnerabilities(vulns *[]cdx.Vulnerability, sbom *cdx.BOM) *[]cdx.Vulnerability {
+func copyVulnerabilities(logger *slog.Logger, vulns *[]cdx.Vulnerability, sbom *cdx.BOM) *[]cdx.Vulnerability {
 	if vulns == nil {
 		return nil
 	}
@@ -96,7 +98,7 @@ func copyVulnerabilities(vulns *[]cdx.Vulnerability, sbom *cdx.BOM) *[]cdx.Vulne
 			affects := make([]cdx.Affects, len(*v.Affects))
 			for j, a := range *v.Affects {
 				affects[j] = a
-				affects[j].Ref = rewriteRefToBOMLink(a.Ref, sbom)
+				affects[j].Ref = rewriteRefToBOMLink(logger, a.Ref, sbom)
 			}
 			result[i].Affects = &affects
 		}
@@ -108,7 +110,7 @@ func copyVulnerabilities(vulns *[]cdx.Vulnerability, sbom *cdx.BOM) *[]cdx.Vulne
 // rewriteRefToBOMLink rewrites a plain bom-ref to a BOM-Link URN pointing at
 // the SBOM. If the ref already looks like a URN (starts with urn:cdx: or
 // urn:uuid:), it's returned unchanged.
-func rewriteRefToBOMLink(ref string, sbom *cdx.BOM) string {
+func rewriteRefToBOMLink(logger *slog.Logger, ref string, sbom *cdx.BOM) string {
 	if ref == "" {
 		return ref
 	}
@@ -122,6 +124,7 @@ func rewriteRefToBOMLink(ref string, sbom *cdx.BOM) string {
 
 	sbomSerial := sbom.SerialNumber
 	if sbomSerial == "" {
+		logger.Warn("vulnerability affects ref left unrewritten: SBOM has no serialNumber", "ref", ref)
 		return ref
 	}
 	const uuidPrefix = "urn:uuid:"

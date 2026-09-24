@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"testing"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -29,6 +30,10 @@ import (
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/config"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/model"
 )
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.DiscardHandler)
+}
 
 func assertZipContains(t *testing.T, zipBytes []byte, wantFile string) {
 	t.Helper()
@@ -150,7 +155,7 @@ func TestPublish_withVulnerabilities(t *testing.T) {
 	repoCfg, rule := testRepoAndRule()
 	uploader := newFakeUploader()
 
-	result, err := Publish(context.Background(), fetchFrom(assets), comp, repoCfg, rule, uploader)
+	result, err := Publish(context.Background(), discardLogger(), fetchFrom(assets), comp, repoCfg, rule, uploader)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -183,7 +188,7 @@ func TestPublish_withoutVulnerabilities(t *testing.T) {
 	repoCfg, rule := testRepoAndRule()
 	uploader := newFakeUploader()
 
-	result, err := Publish(context.Background(), fetchFrom(assets), comp, repoCfg, rule, uploader)
+	result, err := Publish(context.Background(), discardLogger(), fetchFrom(assets), comp, repoCfg, rule, uploader)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -204,7 +209,7 @@ func TestPublish_missingSBOMAsset(t *testing.T) {
 	repoCfg, rule := testRepoAndRule()
 	uploader := newFakeUploader()
 
-	_, err := Publish(context.Background(), fetchFrom(nil), comp, repoCfg, rule, uploader)
+	_, err := Publish(context.Background(), discardLogger(), fetchFrom(nil), comp, repoCfg, rule, uploader)
 	if err == nil {
 		t.Fatal("expected error when no CycloneDX asset is present")
 	}
@@ -220,7 +225,7 @@ func TestPublish_invalidSBOMFailsValidation(t *testing.T) {
 	repoCfg, rule := testRepoAndRule()
 	uploader := newFakeUploader()
 
-	_, err := Publish(context.Background(), fetchFrom(assets), comp, repoCfg, rule, uploader)
+	_, err := Publish(context.Background(), discardLogger(), fetchFrom(assets), comp, repoCfg, rule, uploader)
 	if err == nil {
 		t.Fatal("expected validation error for SBOM missing serialNumber/licenses")
 	}
@@ -237,7 +242,7 @@ func TestPublish_uploadFailurePropagates(t *testing.T) {
 	uploader := newFakeUploader()
 	uploader.failKey = "packages/maven/org.example/widget/1.0.0/widget-1.0.0.zip"
 
-	_, err := Publish(context.Background(), fetchFrom(assets), comp, repoCfg, rule, uploader)
+	_, err := Publish(context.Background(), discardLogger(), fetchFrom(assets), comp, repoCfg, rule, uploader)
 	if err == nil {
 		t.Fatal("expected error to propagate from failed bundle upload")
 	}
@@ -254,7 +259,7 @@ func TestPublish_skipsAlreadyUploadedObjects(t *testing.T) {
 	uploader := newFakeUploader()
 	uploader.skip["packages/maven/org.example/widget/1.0.0/widget-1.0.0.zip"] = true
 
-	result, err := Publish(context.Background(), fetchFrom(assets), comp, repoCfg, rule, uploader)
+	result, err := Publish(context.Background(), discardLogger(), fetchFrom(assets), comp, repoCfg, rule, uploader)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

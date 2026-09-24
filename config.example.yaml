@@ -5,6 +5,10 @@
 # uses the standard AWS SDK v2 credential chain (environment variables,
 # shared config/profile, or an IAM role) so credentials never need to be
 # checked in or passed on the command line.
+#
+# Logging is also not part of this file: use each subcommand's -log-level
+# (error/warn/info/trace) and -log-format (text/json) flags instead. See
+# ARCHITECTURE.md §12 for what each level means.
 
 nxrm:
   url: https://nexus.example.com
@@ -23,8 +27,9 @@ s3:
 
 # Per-NXRM-format rules for which sibling assets belong in a component's
 # flat archive bundle, and how to recognize the vendor's CycloneDX asset.
-# The SBOM asset itself is never included in the bundle zip -- it's split
-# into SBOM/VEX peer files and uploaded separately.
+# The vendor's raw CycloneDX asset itself is never included in the bundle
+# zip as-is -- it's split into a derived SBOM (embedded in the bundle) and
+# VEX document(s) (uploaded separately under /vex/).
 formats:
   maven2:
     includeAssetSuffixes:

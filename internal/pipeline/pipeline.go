@@ -30,6 +30,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
@@ -74,30 +75,43 @@ type FetchFunc func(ctx context.Context, downloadURL string) (io.ReadCloser, err
 // fetch is used only to retrieve asset content (comp.Assets already holds
 // the resolved coordinates/asset list from an earlier NXRM lookup); repoCfg
 // and formatRule come from this component's repository/format configuration.
-func Publish(ctx context.Context, fetch FetchFunc, comp model.Component, repoCfg config.Repository, formatRule config.FormatRule, uploader Uploader) (Result, error) {
+// logger must not be nil. Publish itself never logs the error it returns
+// (per this tool's "log once, at the handling point" convention -- see
+// internal/logging); the caller decides whether to skip-and-continue or
+// abort, and logs there.
+func Publish(ctx context.Context, logger *slog.Logger, fetch FetchFunc, comp model.Component, repoCfg config.Repository, formatRule config.FormatRule, uploader Uploader) (Result, error) {
 	sbomAsset, ok := comp.FindAssetBySuffix(formatRule.SBOMSuffix)
 	if !ok {
 		return Result{}, fmt.Errorf("component %s/%s@%s: no CycloneDX asset found with suffix %q", comp.Name, comp.Version, comp.Format, formatRule.SBOMSuffix)
 	}
+	logger.Info("found vendor CycloneDX asset", "component", comp.Name, "version", comp.Version, "filename", sbomAsset.Filename)
 
 	sbomContent, err := fetch(ctx, sbomAsset.DownloadURL)
 	if err != nil {
 		return Result{}, fmt.Errorf("fetching CycloneDX asset %q: %w", sbomAsset.Filename, err)
 	}
 	defer func() { _ = sbomContent.Close() }()
+	logger.Info("fetched CycloneDX asset content", "component", comp.Name, "version", comp.Version)
 
-	sbom, vex, err := cyclonedx.Split(sbomContent)
+	sbom, vex, err := cyclonedx.Split(logger, sbomContent)
 	if err != nil {
 		return Result{}, fmt.Errorf("splitting CycloneDX document %q: %w", sbomAsset.Filename, err)
+	}
+	if vex != nil {
+		logger.Info("split CycloneDX document into SBOM and VEX", "component", comp.Name, "version", comp.Version)
+	} else {
+		logger.Info("split CycloneDX document into SBOM; no vulnerabilities found, no VEX produced", "component", comp.Name, "version", comp.Version)
 	}
 
 	if err := cyclonedx.ValidateSBOM(sbom); err != nil {
 		return Result{}, fmt.Errorf("validating SBOM for %s@%s: %w", comp.Name, comp.Version, err)
 	}
+	logger.Info("validated SBOM", "component", comp.Name, "version", comp.Version)
 	if vex != nil {
 		if err := cyclonedx.ValidateVEX(vex); err != nil {
 			return Result{}, fmt.Errorf("validating VEX for %s@%s: %w", comp.Name, comp.Version, err)
 		}
+		logger.Info("validated VEX", "component", comp.Name, "version", comp.Version)
 	}
 
 	sbomJSON, err := encodeBOM(sbom)
@@ -106,13 +120,14 @@ func Publish(ctx context.Context, fetch FetchFunc, comp model.Component, repoCfg
 	}
 	sbomFilename := cyclonedx.SBOMFilename(comp.Name, comp.Version)
 
-	bundleBuf, bundleFilename, err := bundle.Assemble(ctx, comp, formatRule, fetch, sbomFilename, sbomJSON)
+	bundleBuf, bundleFilename, err := bundle.Assemble(ctx, logger, comp, formatRule, fetch, sbomFilename, sbomJSON)
 	if err != nil {
 		return Result{}, fmt.Errorf("assembling bundle for %s@%s: %w", comp.Name, comp.Version, err)
 	}
 	if bundleFilename == "" {
 		return Result{}, fmt.Errorf("assembling bundle for %s@%s: empty bundle filename", comp.Name, comp.Version)
 	}
+	logger.Info("assembled bundle", "component", comp.Name, "version", comp.Version, "filename", bundleFilename)
 
 	namespace := s3upload.Namespace(comp, repoCfg)
 	var result Result
@@ -122,18 +137,20 @@ func Publish(ctx context.Context, fetch FetchFunc, comp model.Component, repoCfg
 	if err != nil {
 		return Result{}, fmt.Errorf("uploading bundle to %q: %w", result.BundleKey, err)
 	}
+	logger.Info("uploaded bundle", "key", result.BundleKey, "skipped", result.BundleSkipped)
 
 	if vex != nil {
 		vexJSON, err := encodeBOM(vex)
 		if err != nil {
 			return Result{}, fmt.Errorf("encoding VEX for %s@%s: %w", comp.Name, comp.Version, err)
 		}
-		vexFilename := cyclonedx.VEXFilename(vex)
+		vexFilename := cyclonedx.VEXFilename(logger, vex)
 		result.VEXKey = s3upload.VEXPath(vexFilename)
 		result.VEXSkipped, err = uploader.Upload(ctx, result.VEXKey, bytes.NewReader(vexJSON), "application/json")
 		if err != nil {
 			return Result{}, fmt.Errorf("uploading VEX to %q: %w", result.VEXKey, err)
 		}
+		logger.Info("uploaded VEX", "key", result.VEXKey, "skipped", result.VEXSkipped)
 	}
 
 	return result, nil

@@ -21,12 +21,17 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/config"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/model"
 )
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.DiscardHandler)
+}
 
 func TestAssemble(t *testing.T) {
 	tests := []struct {
@@ -160,7 +165,7 @@ func TestAssemble(t *testing.T) {
 				return io.NopCloser(strings.NewReader(content)), nil
 			}
 
-			buf, filename, err := Assemble(context.Background(), tt.component, tt.rule, fetch, tt.sbomFilename, tt.sbomJSON)
+			buf, filename, err := Assemble(context.Background(), discardLogger(), tt.component, tt.rule, fetch, tt.sbomFilename, tt.sbomJSON)
 
 			if tt.wantErr {
 				if err == nil {
@@ -229,7 +234,7 @@ func TestAssemble_ErrorOnFetchFailure(t *testing.T) {
 		return nil, io.ErrUnexpectedEOF
 	}
 
-	_, _, err := Assemble(context.Background(), comp, rule, fetch, "", nil)
+	_, _, err := Assemble(context.Background(), discardLogger(), comp, rule, fetch, "", nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -261,7 +266,7 @@ func TestAssemble_ContextCancellation(t *testing.T) {
 		return io.NopCloser(strings.NewReader("content")), nil
 	}
 
-	buf, filename, err := Assemble(ctx, comp, rule, fetch, "", nil)
+	buf, filename, err := Assemble(ctx, discardLogger(), comp, rule, fetch, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -290,7 +295,7 @@ func TestAssemble_embedsSBOM(t *testing.T) {
 	}
 	sbomJSON := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.6"}`)
 
-	buf, _, err := Assemble(context.Background(), comp, rule, fetch, "widget-1.0.0.bom.json", sbomJSON)
+	buf, _, err := Assemble(context.Background(), discardLogger(), comp, rule, fetch, "widget-1.0.0.bom.json", sbomJSON)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

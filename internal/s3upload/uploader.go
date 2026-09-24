@@ -20,12 +20,16 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/logging"
 )
 
 // s3Client is the subset of *s3.Client used by Uploader, extracted as an
@@ -40,18 +44,20 @@ type s3Client interface {
 type Uploader struct {
 	client s3Client
 	bucket string
+	logger *slog.Logger
 }
 
 // NewUploader builds an Uploader for the given bucket/region using the
 // default AWS SDK v2 credential chain (env, shared config, IAM role/SSO
 // profile) -- never accept credentials via this tool's own config file.
-func NewUploader(ctx context.Context, bucket, region string) (*Uploader, error) {
+// logger must not be nil.
+func NewUploader(ctx context.Context, bucket, region string, logger *slog.Logger) (*Uploader, error) {
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading AWS config: %w", err)
 	}
 	client := s3.NewFromConfig(cfg)
-	return &Uploader{client: client, bucket: bucket}, nil
+	return &Uploader{client: client, bucket: bucket, logger: logger}, nil
 }
 
 // Upload puts data at key in the bucket, unless an object already exists at
@@ -59,22 +65,25 @@ func NewUploader(ctx context.Context, bucket, region string) (*Uploader, error) 
 // (skipped=true, err=nil) and does NOT attempt the PUT. Returns
 // (skipped=false, err=nil) on a successful upload.
 func (u *Uploader) Upload(ctx context.Context, key string, data io.Reader, contentType string) (skipped bool, err error) {
+	u.logger.Log(ctx, logging.LevelTrace, "checking if object exists", "bucket", u.bucket, "key", key)
 	_, err = u.client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(u.bucket),
 		Key:    aws.String(key),
 	})
 	if err == nil {
+		u.logger.Log(ctx, logging.LevelTrace, "object already exists, skipping upload", "bucket", u.bucket, "key", key)
 		return true, nil
 	}
 
 	var notFound *types.NotFound
 	if !errors.As(err, &notFound) {
-		return false, err
+		return false, fmt.Errorf("checking existence of %q: %w", key, err)
 	}
+	u.logger.Log(ctx, logging.LevelTrace, "object not found, proceeding to upload", "bucket", u.bucket, "key", key)
 
 	bodyBytes, err := io.ReadAll(data)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("reading upload body for %q: %w", key, err)
 	}
 
 	_, err = u.client.PutObject(ctx, &s3.PutObjectInput{
@@ -84,7 +93,7 @@ func (u *Uploader) Upload(ctx context.Context, key string, data io.Reader, conte
 		ContentType: aws.String(contentType),
 	})
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("uploading %q: %w", key, err)
 	}
 
 	return false, nil

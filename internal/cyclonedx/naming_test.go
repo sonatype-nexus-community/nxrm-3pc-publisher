@@ -17,12 +17,18 @@
 package cyclonedx
 
 import (
+	"bytes"
+	"log/slog"
 	"strings"
 	"testing"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/stretchr/testify/assert"
 )
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.DiscardHandler)
+}
 
 func TestSBOMFilename(t *testing.T) {
 	tests := []struct {
@@ -66,7 +72,7 @@ func TestVEXFilename(t *testing.T) {
 			},
 		}
 
-		result := VEXFilename(vex)
+		result := VEXFilename(discardLogger(), vex)
 		assert.Equal(t, "CVE-2026-99999-2026-08-28T00:00:00Z.bom.json", result)
 	})
 
@@ -81,7 +87,7 @@ func TestVEXFilename(t *testing.T) {
 			},
 		}
 
-		result := VEXFilename(vex)
+		result := VEXFilename(discardLogger(), vex)
 		assert.Equal(t, "2026-08-28T00:00:00Z.bom.json", result)
 	})
 
@@ -93,7 +99,7 @@ func TestVEXFilename(t *testing.T) {
 			Vulnerabilities: &[]cdx.Vulnerability{},
 		}
 
-		result := VEXFilename(vex)
+		result := VEXFilename(discardLogger(), vex)
 		assert.Equal(t, "2026-08-28T00:00:00Z.bom.json", result)
 	})
 
@@ -104,7 +110,7 @@ func TestVEXFilename(t *testing.T) {
 			},
 		}
 
-		result := VEXFilename(vex)
+		result := VEXFilename(discardLogger(), vex)
 		assert.True(t, strings.HasPrefix(result, "CVE-2026-99999-"))
 		assert.True(t, strings.HasSuffix(result, ".bom.json"))
 	})
@@ -119,8 +125,26 @@ func TestVEXFilename(t *testing.T) {
 			},
 		}
 
-		result := VEXFilename(vex)
+		result := VEXFilename(discardLogger(), vex)
 		assert.True(t, strings.HasPrefix(result, "CVE-2026-99999-"))
 		assert.True(t, strings.HasSuffix(result, ".bom.json"))
+	})
+
+	t.Run("logs a warning when metadata timestamp unparseable", func(t *testing.T) {
+		var buf bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&buf, nil))
+		vex := &cdx.BOM{
+			Metadata: &cdx.Metadata{
+				Timestamp: "invalid-timestamp",
+			},
+			Vulnerabilities: &[]cdx.Vulnerability{
+				{ID: "CVE-2026-99999"},
+			},
+		}
+
+		VEXFilename(logger, vex)
+
+		assert.Contains(t, buf.String(), "level=WARN")
+		assert.Contains(t, buf.String(), "invalid-timestamp")
 	})
 }

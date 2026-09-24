@@ -47,9 +47,15 @@ nxrm-3pc-publisher publish -config config.yaml -repository maven-releases -name 
 # Backfill: publish every component currently in a repository
 nxrm-3pc-publisher backfill -config config.yaml -repository maven-releases
 
-# Serve: run an HTTP server that receives NXRM component webhooks
-nxrm-3pc-publisher serve -config config.yaml
+# Serve: run an HTTP server that receives NXRM component webhooks, with
+# verbose logging and JSON output suited to a log aggregator
+nxrm-3pc-publisher serve -config config.yaml -log-level trace -log-format json
 ```
+
+Every subcommand takes `-log-level` (`error`, `warn`, `info` — the default
+— or `trace`) and `-log-format` (`text` — the default — or `json`). See
+[ARCHITECTURE.md §12](./ARCHITECTURE.md#12-logging) for what each level
+means and this tool's logging conventions.
 
 Run `nxrm-3pc-publisher <command> -h` for the full flag list on any
 subcommand. See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the three modes

@@ -40,6 +40,12 @@ overall design before making non-trivial changes.
   [`golangci-lint`](https://golangci-lint.run/); run both locally before
   opening a PR. Follow existing package conventions (flat `internal/`
   packages, no `cmd/`/`pkg/`) rather than introducing new structure.
+- Never log credentials or secrets, at any log level including TRACE: NXRM
+  basic-auth username/password, the webhook shared secret, or a raw webhook
+  request body. Don't log a `*config.Config`/`config.NXRM`/`config.Webhook`
+  value wholesale — log specific non-sensitive fields instead. See
+  [ARCHITECTURE.md §12](./ARCHITECTURE.md#12-logging) for the logging levels
+  and conventions this project follows.
 
 ## Testing
 

@@ -19,8 +19,11 @@ package cli
 import (
 	"context"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/logging"
 )
 
 // localUploader satisfies pipeline.Uploader by writing objects to a local
@@ -28,10 +31,11 @@ import (
 // Used by `publish -output-dir` to let an operator inspect the produced
 // bundle/SBOM/VEX files without touching the (immutable) catalog bucket.
 type localUploader struct {
-	dir string
+	dir    string
+	logger *slog.Logger
 }
 
-func (u *localUploader) Upload(_ context.Context, key string, data io.Reader, _ string) (bool, error) {
+func (u *localUploader) Upload(ctx context.Context, key string, data io.Reader, _ string) (bool, error) {
 	path := filepath.Join(u.dir, key)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
@@ -46,5 +50,6 @@ func (u *localUploader) Upload(_ context.Context, key string, data io.Reader, _ 
 	if _, err := io.Copy(f, data); err != nil {
 		return false, err
 	}
+	u.logger.Log(ctx, logging.LevelTrace, "wrote local output file", "path", path)
 	return false, nil
 }

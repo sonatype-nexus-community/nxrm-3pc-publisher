@@ -25,9 +25,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/config"
+	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/logging"
 	"github.com/sonatype-nexus-community/nxrm-3pc-publisher/internal/model"
 )
 
@@ -38,9 +40,11 @@ import (
 // error encountered.
 //
 // The fetch function is called with each asset's download URL to retrieve its
-// content. It must return an io.ReadCloser that the caller closes.
+// content. It must return an io.ReadCloser that the caller closes. logger
+// must not be nil.
 func Assemble(
 	ctx context.Context,
+	logger *slog.Logger,
 	comp model.Component,
 	rule config.FormatRule,
 	fetch func(ctx context.Context, downloadURL string) (io.ReadCloser, error),
@@ -52,6 +56,7 @@ func Assemble(
 
 	for _, asset := range comp.Assets {
 		if shouldInclude(asset.Filename, rule) {
+			logger.Log(ctx, logging.LevelTrace, "including asset in bundle", "filename", asset.Filename)
 			rc, err := fetch(ctx, asset.DownloadURL)
 			if err != nil {
 				return nil, "", fmt.Errorf("fetching asset %q: %w", asset.Filename, err)
@@ -72,6 +77,8 @@ func Assemble(
 			if err != nil {
 				return nil, "", err
 			}
+		} else {
+			logger.Log(ctx, logging.LevelTrace, "excluding asset from bundle", "filename", asset.Filename)
 		}
 	}
 
@@ -83,6 +90,7 @@ func Assemble(
 		if _, err := fw.Write(sbomJSON); err != nil {
 			return nil, "", fmt.Errorf("writing SBOM %q to zip: %w", sbomFilename, err)
 		}
+		logger.Log(ctx, logging.LevelTrace, "embedded SBOM into bundle", "filename", sbomFilename)
 	}
 
 	if err := w.Close(); err != nil {

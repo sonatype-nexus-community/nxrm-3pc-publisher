@@ -19,12 +19,17 @@ package nxrm
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	v395 "github.com/sonatype-nexus-community/nexus-repo-api-client-go/v395"
 )
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.DiscardHandler)
+}
 
 func TestSplitScheme(t *testing.T) {
 	cases := []struct {
@@ -106,7 +111,7 @@ func TestClient_FetchAssetContent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(Options{BaseURL: srv.URL})
+	c := NewClient(Options{BaseURL: srv.URL}, discardLogger())
 	rc, err := c.FetchAssetContent(context.Background(), srv.URL+"/asset.jar")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -132,7 +137,7 @@ func TestClient_FetchAssetContent_sendsBasicAuth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(Options{BaseURL: srv.URL, Username: "alice", Password: "secret"})
+	c := NewClient(Options{BaseURL: srv.URL, Username: "alice", Password: "secret"}, discardLogger())
 	rc, err := c.FetchAssetContent(context.Background(), srv.URL+"/asset.jar")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -156,7 +161,7 @@ func TestClient_FetchAssetContent_noAuthConfigured(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(Options{BaseURL: srv.URL})
+	c := NewClient(Options{BaseURL: srv.URL}, discardLogger())
 	rc, err := c.FetchAssetContent(context.Background(), srv.URL+"/asset.jar")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -175,7 +180,7 @@ func TestClient_FetchAssetContent_notFound(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewClient(Options{BaseURL: srv.URL})
+	c := NewClient(Options{BaseURL: srv.URL}, discardLogger())
 	_, err := c.FetchAssetContent(context.Background(), srv.URL+"/missing.jar")
 	if err == nil {
 		t.Fatal("expected error for 404 response")

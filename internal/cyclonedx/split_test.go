@@ -18,6 +18,7 @@ package cyclonedx
 
 import (
 	"bytes"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestSplit(t *testing.T) {
 		}
 
 		jsonBytes := mustMarshalBOM(t, source)
-		sbom, vex, err := Split(bytes.NewReader(jsonBytes))
+		sbom, vex, err := Split(discardLogger(), bytes.NewReader(jsonBytes))
 		require.NoError(t, err)
 		require.NotNil(t, sbom)
 		require.NotNil(t, vex)
@@ -84,7 +85,7 @@ func TestSplit(t *testing.T) {
 		}
 
 		jsonBytes := mustMarshalBOM(t, source)
-		sbom, vex, err := Split(bytes.NewReader(jsonBytes))
+		sbom, vex, err := Split(discardLogger(), bytes.NewReader(jsonBytes))
 		require.NoError(t, err)
 		require.NotNil(t, sbom)
 		require.NotNil(t, vex)
@@ -111,7 +112,7 @@ func TestSplit(t *testing.T) {
 		}
 
 		jsonBytes := mustMarshalBOM(t, source)
-		sbom, vex, err := Split(bytes.NewReader(jsonBytes))
+		sbom, vex, err := Split(discardLogger(), bytes.NewReader(jsonBytes))
 		require.NoError(t, err)
 		require.NotNil(t, sbom)
 		require.NotNil(t, vex)
@@ -139,7 +140,7 @@ func TestSplit(t *testing.T) {
 		}
 
 		jsonBytes := mustMarshalBOM(t, source)
-		sbom, vex, err := Split(bytes.NewReader(jsonBytes))
+		sbom, vex, err := Split(discardLogger(), bytes.NewReader(jsonBytes))
 		require.NoError(t, err)
 		require.NotNil(t, sbom)
 		assert.Nil(t, vex)
@@ -163,7 +164,7 @@ func TestSplit(t *testing.T) {
 		}
 
 		jsonBytes := mustMarshalBOM(t, source)
-		_, vex, err := Split(bytes.NewReader(jsonBytes))
+		_, vex, err := Split(discardLogger(), bytes.NewReader(jsonBytes))
 		require.NoError(t, err)
 		require.NotNil(t, vex)
 
@@ -200,7 +201,7 @@ func TestSplit(t *testing.T) {
 		}
 
 		jsonBytes := mustMarshalBOM(t, source)
-		sbom, vex, err := Split(bytes.NewReader(jsonBytes))
+		sbom, vex, err := Split(discardLogger(), bytes.NewReader(jsonBytes))
 		require.NoError(t, err)
 		require.NotNil(t, sbom)
 		require.NotNil(t, sbom.Components)
@@ -230,7 +231,7 @@ func TestSplit(t *testing.T) {
 		}
 
 		jsonBytes := mustMarshalBOM(t, source)
-		sbom, _, err := Split(bytes.NewReader(jsonBytes))
+		sbom, _, err := Split(discardLogger(), bytes.NewReader(jsonBytes))
 		require.NoError(t, err)
 		require.NotNil(t, sbom.Components)
 		require.Len(t, *sbom.Components, 1)
@@ -245,4 +246,55 @@ func mustMarshalBOM(t *testing.T, bom *cdx.BOM) []byte {
 	err := encoder.Encode(bom)
 	require.NoError(t, err)
 	return buf.Bytes()
+}
+
+func TestSplit_logsWarningWhenNoComponentsAndNoMetadataComponent(t *testing.T) {
+	source := &cdx.BOM{
+		BOMFormat:    "CycloneDX",
+		SpecVersion:  cdx.SpecVersion1_5,
+		SerialNumber: "urn:uuid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+		Version:      1,
+	}
+	jsonBytes := mustMarshalBOM(t, source)
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	_, _, err := Split(logger, bytes.NewReader(jsonBytes))
+	require.NoError(t, err)
+
+	assert.Contains(t, buf.String(), "level=WARN")
+	assert.Contains(t, buf.String(), "no components")
+}
+
+func TestSplit_logsWarningWhenRefLeftUnrewritten(t *testing.T) {
+	source := &cdx.BOM{
+		BOMFormat:   "CycloneDX",
+		SpecVersion: cdx.SpecVersion1_5,
+		// No SerialNumber: rewriteRefToBOMLink cannot build a BOM-Link
+		// without one, so the ref is left unchanged and a WARNING logged.
+		Version: 1,
+		Vulnerabilities: &[]cdx.Vulnerability{
+			{
+				ID: "CVE-2026-00001",
+				Affects: &[]cdx.Affects{
+					{Ref: "pkg:maven/org.example/widget@1.0.0"},
+				},
+			},
+		},
+	}
+	jsonBytes := mustMarshalBOM(t, source)
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	_, vex, err := Split(logger, bytes.NewReader(jsonBytes))
+	require.NoError(t, err)
+	require.NotNil(t, vex)
+
+	gotRef := (*(*vex.Vulnerabilities)[0].Affects)[0].Ref
+	assert.Equal(t, "pkg:maven/org.example/widget@1.0.0", gotRef, "ref should be left unchanged")
+
+	assert.Contains(t, buf.String(), "level=WARN")
+	assert.Contains(t, buf.String(), "left unrewritten")
 }
