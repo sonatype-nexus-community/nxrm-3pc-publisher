@@ -28,6 +28,7 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -70,6 +71,13 @@ var _ Uploader = (*s3upload.Uploader)(nil)
 // without a live NXRM server.
 type FetchFunc func(ctx context.Context, downloadURL string) (io.ReadCloser, error)
 
+// ErrIncomplete is wrapped by the error Publish returns when a component does
+// not yet have everything it needs: a required asset or the vendor CycloneDX
+// asset is missing. It is distinct from a permanent failure (invalid SBOM,
+// upload error) because the component may simply still be mid-upload, so
+// callers such as `serve` can wait and try again.
+var ErrIncomplete = errors.New("component incomplete")
+
 // Publish runs the full pipeline for a single already-resolved component:
 // fetch the vendor's CycloneDX asset, assemble the bundle, split SBOM/VEX,
 // validate, and upload all produced objects to S3.
@@ -83,12 +91,12 @@ type FetchFunc func(ctx context.Context, downloadURL string) (io.ReadCloser, err
 // abort, and logs there.
 func Publish(ctx context.Context, logger *slog.Logger, fetch FetchFunc, comp model.Component, repoCfg config.Repository, formatRule config.FormatRule, uploader Uploader) (Result, error) {
 	if missing := missingRequiredAssets(comp, formatRule); len(missing) > 0 {
-		return Result{}, fmt.Errorf("component %s/%s@%s: required assets missing (no asset ending in %s)", comp.Name, comp.Version, comp.Format, strings.Join(missing, ", "))
+		return Result{}, fmt.Errorf("component %s/%s@%s: required assets missing (no asset ending in %s): %w", comp.Name, comp.Version, comp.Format, strings.Join(missing, ", "), ErrIncomplete)
 	}
 
 	sbomAsset, ok := comp.FindAssetBySuffix(formatRule.SBOMSuffix)
 	if !ok {
-		return Result{}, fmt.Errorf("component %s/%s@%s: no CycloneDX asset found with suffix %q", comp.Name, comp.Version, comp.Format, formatRule.SBOMSuffix)
+		return Result{}, fmt.Errorf("component %s/%s@%s: no CycloneDX asset found with suffix %q: %w", comp.Name, comp.Version, comp.Format, formatRule.SBOMSuffix, ErrIncomplete)
 	}
 	logger.Info("found vendor CycloneDX asset", "component", comp.Name, "version", comp.Version, "filename", sbomAsset.Filename)
 

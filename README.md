@@ -159,7 +159,7 @@ repositories:
 |---|---|---|
 | `publish` | Publish one component by NXRM coordinates | `-config`, `-repository`, `-group` (optional), `-name`, `-version`, `-output-dir` (optional) |
 | `backfill` | Publish every component in a repository | `-config`, `-repository` |
-| `serve` | Receive NXRM component webhooks and publish each new component | `-config` |
+| `serve` | Receive NXRM component webhooks and publish each new component | `-config`, `-output-dir` (optional) |
 | `version` | Print version information | |
 
 Every publishing command also takes `-log-level` (`error`, `warn`, `info` —
@@ -196,10 +196,14 @@ verifies the `X-Nexus-Webhook-Signature` HMAC-SHA1 header against
 repositories listed in the config; everything else is acknowledged and
 ignored. It speaks plain HTTP, so run it behind a TLS-terminating proxy.
 
-The webhook fires when NXRM creates the component, so the CycloneDX asset must
-already be attached by then. If a component is created before its CycloneDX
-file arrives it is skipped; re-run it with `publish` once it is complete. See
-the [Quickstart](./docs/QUICKSTART.md#6-automate-with-a-webhook).
+NXRM sends several events for a single upload, and in no reliable order
+relative to the files themselves. `serve` therefore does not publish on the
+first event. It waits for the component to go quiet (`webhook.settleDelay`,
+default 10s), then publishes only if every required asset and the CycloneDX
+asset are present. If not, it checks again, until `webhook.maxWait` (default
+10m) passes and the component is reported as an error. Run `publish` to
+retry one. Add `-output-dir <dir>` to write to a local directory instead of
+S3. See the [Quickstart](./docs/QUICKSTART.md#6-automate-with-a-webhook).
 
 ## Output
 

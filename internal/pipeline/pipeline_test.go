@@ -20,6 +20,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -290,6 +291,9 @@ func TestPublish_requiredAssets(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected an error for the missing .pom")
 		}
+		if !errors.Is(err, ErrIncomplete) {
+			t.Errorf("a missing required asset must wrap ErrIncomplete, got: %v", err)
+		}
 		if !strings.Contains(err.Error(), `".pom"`) || strings.Contains(err.Error(), `".jar"`) {
 			t.Errorf("error should name only the missing .pom suffix, got: %v", err)
 		}
@@ -327,4 +331,30 @@ func TestPublish_requiredAssets(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
+}
+
+func TestPublish_missingCycloneDXIsIncomplete(t *testing.T) {
+	repoCfg, rule := testRepoAndRule()
+	comp := testComponent(nil)
+	comp.Assets = comp.Assets[:1] // drop the CycloneDX asset
+
+	_, err := Publish(context.Background(), discardLogger(), fetchFrom(nil), comp, repoCfg, rule, newFakeUploader())
+	if !errors.Is(err, ErrIncomplete) {
+		t.Fatalf("a missing CycloneDX asset must wrap ErrIncomplete, got: %v", err)
+	}
+}
+
+func TestPublish_invalidSBOMIsNotIncomplete(t *testing.T) {
+	bad := []byte(`{"bomFormat":"CycloneDX","specVersion":"1.5","serialNumber":"urn:uuid:0f2c9a6e-71c4-4d8b-9e3a-5b6d1f0a2c44","version":1}`)
+	comp := testComponent(bad)
+	assets := map[string][]byte{
+		"https://nexus.example.com/widget-1.0.0.jar":            []byte("jar"),
+		"https://nexus.example.com/widget-1.0.0-cyclonedx.json": bad,
+	}
+	repoCfg, rule := testRepoAndRule()
+
+	_, err := Publish(context.Background(), discardLogger(), fetchFrom(assets), comp, repoCfg, rule, newFakeUploader())
+	if err == nil || errors.Is(err, ErrIncomplete) {
+		t.Fatalf("an invalid SBOM is permanent and must not wrap ErrIncomplete, got: %v", err)
+	}
 }

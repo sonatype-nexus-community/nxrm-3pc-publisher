@@ -17,7 +17,11 @@ First public release.
 - `backfill` subcommand: page through every component in an NXRM repository
   and publish each one.
 - `serve` subcommand: HTTP receiver for NXRM `rm:repository:component`
-  `CREATED` webhooks, verified with an HMAC-SHA1 shared secret.
+  webhooks, verified with an HMAC-SHA1 shared secret. NXRM sends many events
+  per upload in no reliable order, so `serve` waits for a component to go
+  quiet (`webhook.settleDelay`), publishes once it has all required assets,
+  retries while assets are missing (up to `webhook.maxWait`), and publishes
+  each component once. `serve -output-dir` writes locally instead of to S3.
 - CycloneDX split: a vendor's single CycloneDX document is divided into a
   conformant SBOM and one or more VEX documents, with VEX `affects` references
   rewritten to BOM-Links into the SBOM. VEX file names use the vendor

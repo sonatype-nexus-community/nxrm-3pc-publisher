@@ -138,14 +138,35 @@ client, or duplicating types in this repo). Bump the `/v395` import and
   JSON body) using the shared secret from config before processing — this
   verification and the payload struct are hand-rolled in `internal/nxrm`,
   since the client library doesn't cover webhooks (§4.1).
-- Filters on `X-Nexus-Webhook-Id: rm:repository:component` and
-  `action: CREATED`; ignores everything else (200 OK, no-op).
+- Filters on `X-Nexus-Webhook-Id: rm:repository:component`. `CREATED` starts
+  a publish attempt; `UPDATED` only extends a wait already under way;
+  everything else is ignored (200 OK, no-op).
 - Filters further on `repositoryName` against the set of repositories present
   in config — unconfigured repositories are ignored, not errored.
-- On a matching event, hands `componentId` to the shared pipeline (§3), which
-  resolves the rest via `nexus-repo-api-client-go`.
-- Processing happens synchronously per request today (v1); a queue is future
-  work if webhook volume/latency demands it.
+- A matching event is handed to `internal/settle`, not published directly.
+  Observed against NXRM 3.96: one Maven deploy of five files produced 5
+  `component CREATED` and 14 `component UPDATED` events, interleaved with
+  the file events in no reliable order, and the CycloneDX file was the first
+  to appear. Publishing on the first event would therefore race the upload,
+  and because the catalog bucket is immutable a bundle built from a partial
+  component could never be corrected.
+- `internal/settle` keys events by `repository/group/name@version`. The first
+  `CREATED` starts a timer; later `CREATED` and `UPDATED` events restart it.
+  When the component has been quiet for `webhook.settleDelay` (default 10s)
+  the work resolves the component by `componentId` and runs the shared
+  pipeline (§3). A result wrapping `pipeline.ErrIncomplete` (a required
+  asset or the CycloneDX asset is missing) is retried after another settle
+  period, until `webhook.maxWait` (default 10m) has elapsed since the first
+  event, after which it is logged once as an ERROR. Any other failure is
+  final and logged immediately. A key that has concluded ignores further
+  events for `maxWait`, so the trailing events of one upload cannot trigger a
+  second publish.
+- Only required assets gate publishing. Optional assets (sources, javadoc)
+  that land after the settle period are not in the bundle, and cannot be
+  added later. State is in memory; events lost in a restart are recovered
+  with `publish` or `backfill`.
+- The HTTP response is sent immediately; work runs in the scheduler. Shutdown
+  cancels pending work and waits for anything in flight.
 
 ## 5. Bundle Assembly
 
@@ -287,6 +308,7 @@ contribute.sonatype.com conventions:
   cyclonedx/                   # split logic, spec validation
   s3upload/                    # path construction, HEAD/PUT, AWS SDK v2 wiring
   pipeline/                    # orchestrates steps 1–6, shared by all modes
+  settle/                      # coalesces webhook event bursts; serve mode only
 /LICENSE                       # Apache-2.0
 /README.md
 /CONTRIBUTING.md
@@ -371,7 +393,8 @@ body — at any level, including TRACE.
   endpoint, field, or bug encountered while using it should be fixed there
   (PR upstream) rather than worked around in this repo. This tool tracks
   released versions of that client, it does not fork or patch around it.
-- Webhook processing is synchronous; revisit with a queue if needed.
+- Webhook state is in memory. A restart drops components that were waiting;
+  `backfill` recovers them. A durable queue is future work.
 - `publish`/`backfill` local-file-input mode (bypassing NXRM) was explicitly
   deferred — could be added as a fourth subcommand later.
 - No local state/checkpoint store for backfill resumability; relies on S3

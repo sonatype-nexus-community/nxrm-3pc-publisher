@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -59,6 +60,15 @@ type Webhook struct {
 	Secret string `yaml:"secret"`
 	// ListenAddr is the address the webhook HTTP server binds to, e.g. ":8443".
 	ListenAddr string `yaml:"listenAddr"`
+	// SettleDelay is how long serve waits after the last webhook event for a
+	// component before checking whether it is complete. NXRM sends many
+	// events for one upload; this coalesces them. Written as a Go duration,
+	// e.g. "10s". Zero means the default (10s).
+	SettleDelay time.Duration `yaml:"settleDelay"`
+	// MaxWait is how long serve keeps waiting for a component to gain its
+	// required assets before giving up with an error. Zero means the default
+	// (10m).
+	MaxWait time.Duration `yaml:"maxWait"`
 }
 
 // S3 holds the destination bucket for the Sonatype Third-Party Component
@@ -140,6 +150,12 @@ func (c *Config) Validate() error {
 	}
 	if len(c.Repositories) == 0 {
 		return fmt.Errorf("at least one entry under repositories is required")
+	}
+	if c.Webhook.SettleDelay < 0 {
+		return fmt.Errorf("webhook.settleDelay must not be negative")
+	}
+	if c.Webhook.MaxWait < 0 {
+		return fmt.Errorf("webhook.maxWait must not be negative")
 	}
 	for name, repo := range c.Repositories {
 		if repo.Ecosystem == "" {

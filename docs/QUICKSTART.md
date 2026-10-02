@@ -170,7 +170,8 @@ and logged, never overwritten. Running the same command twice is safe.
 `serve` publishes each new component as it lands in NXRM.
 
 1. Add a `webhook` section to the config with a `secret` and a `listenAddr`.
-2. Start the server:
+2. Optionally tune the wait in the `webhook` section (`settleDelay` and
+   `maxWait` are Go durations such as `30s` or `15m`), then start the server:
 
    ```
    nxrm-3pc-publisher serve -config config.yaml -log-format json
@@ -192,12 +193,26 @@ The server only acts on `component` `CREATED` events for repositories listed
 in the config. Everything else is acknowledged and ignored. It serves plain
 HTTP, so put it behind a TLS-terminating reverse proxy or load balancer.
 
-**Timing matters.** A single Maven deploy makes NXRM send several `component`
-events for the same component while its files are still arriving, and each one
-starts a publish. A publish that runs before all required files are present is
-refused ("required assets missing" or "no CycloneDX asset found"), and later
-events for the same component retry it. Treat `serve` as best effort: run
-`publish` or `backfill` to confirm or fill any gap.
+**How `serve` handles timing.** A single Maven deploy makes NXRM send many
+`component` events for the same component while its files are still
+arriving, in no reliable order. `serve` folds them together:
+
+1. The first `CREATED` event starts a wait. Further events for the same
+   component extend it, so nothing happens mid-upload.
+2. When the component has been quiet for `webhook.settleDelay` (default
+   `10s`), `serve` reads it from NXRM and publishes if the CycloneDX asset and
+   every required asset are present.
+3. If something is still missing it checks again, until `webhook.maxWait`
+   (default `10m`) has passed since the first event. Then the component is
+   logged as an error and dropped. Run `publish` for it once it is complete.
+4. A component that fails validation is reported straight away and not
+   retried, since waiting will not fix it.
+
+Optional files such as `-sources.jar` are not waited for, so if they arrive
+more than `settleDelay` after the required files they will be missing from the
+bundle. The bucket never overwrites, so raise `settleDelay` if your upload
+tooling is slow between files. To preview what `serve` would publish, start
+it with `-output-dir ./out`.
 
 ## 7. Backfill existing components
 
@@ -221,4 +236,6 @@ run continues. Re-running is safe, since existing objects are skipped.
 | Warning: no `pedigree.ancestors` | The component declares no upstream ancestor. It is still published. |
 | Webhook ignored, signature did not verify | `webhook.secret` differs from the NXRM capability's secret key. |
 | Webhook ignored, repository not configured | The repository is missing from `repositories:` in the config. |
+| Component logged as an error after `maxWait`, required assets missing | The upload never finished, or took longer than `webhook.maxWait`. Complete it, then run `publish`. |
+| Bundle missing `-sources.jar` or `-javadoc.jar` | They arrived after `settleDelay` had passed. Raise `webhook.settleDelay`. The existing bundle cannot be replaced. |
 | Everything is `already exists, skipping` | Expected on re-runs. Objects in the bucket are never overwritten. |

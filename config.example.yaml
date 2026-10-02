@@ -20,6 +20,14 @@ nxrm:
 webhook:
   secret: <shared-secret-configured-on-the-NXRM-webhook-capability>
   listenAddr: ":8443"
+  # NXRM sends many events for one upload. serve waits until a component has
+  # been quiet for settleDelay before checking it, and keeps checking (while
+  # required assets are missing) for up to maxWait after the first event.
+  # Optional assets such as -sources.jar that arrive later than settleDelay
+  # are left out of the bundle, so raise it if your uploads are slow.
+  # Go durations; defaults shown.
+  # settleDelay: 10s
+  # maxWait: 10m
 
 s3:
   bucket: <catalog-bucket-name-provided-by-sonatype>

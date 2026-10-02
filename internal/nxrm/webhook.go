@@ -48,6 +48,12 @@ type WebhookComponentXO struct {
 	Version     string `json:"version"`
 }
 
+// ActionUpdated is the WebhookPayload.Action value for a component whose
+// data changed. NXRM sends one each time an asset is attached to a component,
+// which makes it a useful "something arrived" signal while a multi-file
+// upload is still in progress.
+const ActionUpdated = "UPDATED"
+
 // ActionCreated is the WebhookPayload.Action value for a newly
 // created/uploaded component.
 const ActionCreated = "CREATED"
