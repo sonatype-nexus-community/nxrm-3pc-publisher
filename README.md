@@ -45,17 +45,21 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 | Ecosystem | NXRM format | Default bundle contents | Status |
 |---|---|---|---|
 | `maven` | `maven2` | `.jar`, `.pom`, `-sources.jar`, `-javadoc.jar` (`.jar` and `.pom` required) | Supported. Namespace is the Maven `groupId`. |
-| `npm` | `npm` | `.tgz` (required) | Default rules only; not yet verified end to end. Scoped packages (`@scope/name`) are untested, so the scope may be missing from the S3 path. |
+| `npm` | `npm` | | **Not supported in 0.1.0.** |
+
+**npm is out of scope for 0.1.0.** It has not been verified end to end, and
+scoped packages (`@scope/name`) in particular are untested: the scope may be
+left out of the S3 path, and the bucket cannot be corrected afterwards. Do not
+point this tool at an npm repository yet.
 
 Only **hosted** repositories are intended as sources. Each watched repository
 must declare its `ecosystem` explicitly in the config; there is no default, so
 a misconfigured repository fails validation rather than being published under
 a guessed ecosystem.
 
-Other NXRM formats can be enabled by adding a `formats:` entry (which assets
-go in the bundle) and a repository with an `ecosystem` value in the config.
-That path is not tested, so check the output with `-output-dir` first and
-confirm the ecosystem value and S3 layout with the catalog's maintainers.
+No other NXRM formats are supported in 0.1.0. The configuration does not stop
+you adding a `formats:` entry and a repository with another `ecosystem`, but
+that path is untested, and its output goes into an immutable bucket.
 
 ## Publishing to NXRM: what the tool expects
 

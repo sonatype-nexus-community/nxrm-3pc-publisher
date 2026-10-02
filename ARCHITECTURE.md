@@ -177,15 +177,17 @@ formats:
   maven2:
     includeAssetSuffixes: [".jar", ".pom", "-sources.jar", "-javadoc.jar"]
     sbomSuffix: "-cyclonedx.json"
-  npm:
-    includeAssetSuffixes: [".tgz"]
-    sbomSuffix: "-cyclonedx.json"
 ```
 
+> **Scope of 0.1.0:** only `maven2` is supported. npm is out of scope for this
+> release: it is unverified end to end, and how NXRM reports an npm scope
+> (`@scope`) for the S3 namespace segment has not been checked. The bucket is
+> immutable, so a wrong path cannot be fixed afterwards.
+
 - Config can override or extend `includeAssetSuffixes`/`sbomSuffix` per
-  format, but ships with sensible maven2/npm defaults.
+  format, but ships with sensible maven2 defaults.
 - `requiredAssetSuffixes` names the assets a component must have before it is
-  published (maven2: `.jar`, `.pom`; npm: `.tgz`). Everything else in
+  published (maven2: `.jar`, `.pom`). Everything else in
   `includeAssetSuffixes` (sources, javadoc) is optional. Each required suffix
   must also appear in `includeAssetSuffixes`.
 - The vendor's raw CycloneDX asset (matched by `sbomSuffix`) is *never*
@@ -288,9 +290,6 @@ repositories:
   jackson-maven-releases:
     ecosystem: maven          # required, no default
     namespaceFromGroup: true  # group "com.fasterxml.jackson.core" → namespace segment
-  patched-npm-releases:
-    ecosystem: npm
-    namespaceFromGroup: false
 ```
 
 ## 10. Project Layout & Tooling

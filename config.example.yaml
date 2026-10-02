@@ -57,12 +57,7 @@ formats:
       - ".jar"
       - ".pom"
     sbomSuffix: "-cyclonedx.json"
-  npm:
-    includeAssetSuffixes:
-      - ".tgz"
-    requiredAssetSuffixes:
-      - ".tgz"
-    sbomSuffix: "-cyclonedx.json"
+  # Only maven2 is supported in 0.1.0. npm is out of scope for this release.
 
 # Every NXRM repository this tool is allowed to act on, keyed by repository
 # name. `ecosystem` is required -- there is no default, so an unconfigured or
@@ -74,6 +69,3 @@ repositories:
     # Use the component's NXRM group (e.g. Maven groupId) as the S3 path
     # namespace segment.
     namespaceFromGroup: true
-  <your-npm-hosted-repository>:
-    ecosystem: npm
-    namespaceFromGroup: false

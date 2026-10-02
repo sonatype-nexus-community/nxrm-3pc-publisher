@@ -1,8 +1,8 @@
 # Quickstart
 
 This guide takes you from nothing to a first published component. It uses a
-Maven component, which is the best-documented path; see
-[Supported ecosystems](../README.md#supported-ecosystems) for the rest.
+Maven component. Maven is the only ecosystem supported in 0.1.0; see
+[Supported ecosystems](../README.md#supported-ecosystems).
 
 - [Before you start](#before-you-start)
 - [1. Install](#1-install)

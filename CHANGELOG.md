@@ -10,6 +10,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 First public release.
 
+### Known limitations
+
+- Only Maven (`maven2`) is supported. npm is out of scope for this release and
+  has not been verified end to end; scoped packages in particular are untested.
+
 ### Added
 
 - `publish` subcommand: resolve a single component by NXRM coordinates
