@@ -5,6 +5,9 @@ on:
         tags:
             - 'v*'
 
+permissions:
+    contents: write
+
 env:
     LC_APPLICATION_ID: nxrm-3pc-publisher
 
@@ -53,5 +56,5 @@ jobs:
                   args: release --clean
               env:
                   # GitHub sets the GITHUB_TOKEN secret automatically.
-                  GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}

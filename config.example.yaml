@@ -11,25 +11,27 @@
 # ARCHITECTURE.md §12 for what each level means.
 
 nxrm:
-  url: https://nexus.example.com
+  url: https://<your-nxrm-host>
   auth:
-    username: admin
-    password: admin123
+    username: <nxrm-username>
+    password: <nxrm-password-or-user-token>
 
 # Required only for the `serve` subcommand.
 webhook:
-  secret: change-me-to-the-shared-secret-configured-on-the-NXRM-webhook-capability
+  secret: <shared-secret-configured-on-the-NXRM-webhook-capability>
   listenAddr: ":8443"
 
 s3:
-  bucket: sonatype-3p-catalog
-  region: us-east-1
+  bucket: <catalog-bucket-name-provided-by-sonatype>
+  region: <bucket-region>
 
 # Per-NXRM-format rules for which sibling assets belong in a component's
 # flat archive bundle, and how to recognize the vendor's CycloneDX asset.
 # The vendor's raw CycloneDX asset itself is never included in the bundle
 # zip as-is -- it's split into a derived SBOM (embedded in the bundle) and
 # VEX document(s) (uploaded separately under /vex/).
+#
+# A format must be listed here for components of that format to be published.
 formats:
   maven2:
     includeAssetSuffixes:
@@ -48,11 +50,11 @@ formats:
 # misclassified repository fails config validation rather than silently
 # landing under a guessed ecosystem.
 repositories:
-  jackson-maven-releases:
+  <your-maven-hosted-repository>:
     ecosystem: maven
     # Use the component's NXRM group (e.g. Maven groupId) as the S3 path
     # namespace segment.
     namespaceFromGroup: true
-  patched-npm-releases:
+  <your-npm-hosted-repository>:
     ecosystem: npm
     namespaceFromGroup: false
