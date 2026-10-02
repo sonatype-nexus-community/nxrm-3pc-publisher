@@ -42,11 +42,18 @@ func Split(logger *slog.Logger, r io.Reader) (sbom *cdx.BOM, vex *cdx.BOM, err e
 		return nil, nil, err
 	}
 
+	// CycloneDX requires version >= 1; a source that omits it decodes as 0.
+	// Normalise here so the SBOM, and the BOM-Links that reference it, agree.
+	sbomVersion := source.Version
+	if sbomVersion < 1 {
+		sbomVersion = 1
+	}
+
 	sbom = &cdx.BOM{
 		BOMFormat:       source.BOMFormat,
 		SpecVersion:     source.SpecVersion,
 		SerialNumber:    source.SerialNumber,
-		Version:         source.Version,
+		Version:         sbomVersion,
 		Metadata:        source.Metadata,
 		Components:      withMetadataComponent(logger, source.Components, source.Metadata),
 		Dependencies:    source.Dependencies,
@@ -62,7 +69,13 @@ func Split(logger *slog.Logger, r io.Reader) (sbom *cdx.BOM, vex *cdx.BOM, err e
 		BOMFormat:       source.BOMFormat,
 		SpecVersion:     source.SpecVersion,
 		SerialNumber:    vexSerial,
+		Version:         1,
 		Vulnerabilities: copyVulnerabilities(logger, source.Vulnerabilities, sbom),
+	}
+	// Carry the vendor document's timestamp so VEXFilename is stable across
+	// re-publishes of the same component (the bucket skips existing keys).
+	if source.Metadata != nil && source.Metadata.Timestamp != "" {
+		vex.Metadata = &cdx.Metadata{Timestamp: source.Metadata.Timestamp}
 	}
 
 	return sbom, vex, nil

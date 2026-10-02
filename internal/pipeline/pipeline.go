@@ -31,6 +31,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
+	"strings"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 
@@ -80,6 +82,10 @@ type FetchFunc func(ctx context.Context, downloadURL string) (io.ReadCloser, err
 // internal/logging); the caller decides whether to skip-and-continue or
 // abort, and logs there.
 func Publish(ctx context.Context, logger *slog.Logger, fetch FetchFunc, comp model.Component, repoCfg config.Repository, formatRule config.FormatRule, uploader Uploader) (Result, error) {
+	if missing := missingRequiredAssets(comp, formatRule); len(missing) > 0 {
+		return Result{}, fmt.Errorf("component %s/%s@%s: required assets missing (no asset ending in %s)", comp.Name, comp.Version, comp.Format, strings.Join(missing, ", "))
+	}
+
 	sbomAsset, ok := comp.FindAssetBySuffix(formatRule.SBOMSuffix)
 	if !ok {
 		return Result{}, fmt.Errorf("component %s/%s@%s: no CycloneDX asset found with suffix %q", comp.Name, comp.Version, comp.Format, formatRule.SBOMSuffix)
@@ -103,7 +109,7 @@ func Publish(ctx context.Context, logger *slog.Logger, fetch FetchFunc, comp mod
 		logger.Info("split CycloneDX document into SBOM; no vulnerabilities found, no VEX produced", "component", comp.Name, "version", comp.Version)
 	}
 
-	if err := cyclonedx.ValidateSBOM(sbom); err != nil {
+	if err := cyclonedx.ValidateSBOM(logger, sbom, repoCfg.Ecosystem); err != nil {
 		return Result{}, fmt.Errorf("validating SBOM for %s@%s: %w", comp.Name, comp.Version, err)
 	}
 	logger.Info("validated SBOM", "component", comp.Name, "version", comp.Version)
@@ -162,4 +168,18 @@ func encodeBOM(bom *cdx.BOM) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// missingRequiredAssets returns the configured required suffixes for which
+// comp has no matching asset. Checksum/signature companions such as
+// "x.jar.sha1" do not satisfy a ".jar" requirement because matching is by
+// suffix.
+func missingRequiredAssets(comp model.Component, rule config.FormatRule) []string {
+	var missing []string
+	for _, suffix := range rule.RequiredAssetSuffixes {
+		if _, ok := comp.FindAssetBySuffix(suffix); !ok {
+			missing = append(missing, strconv.Quote(suffix))
+		}
+	}
+	return missing
 }

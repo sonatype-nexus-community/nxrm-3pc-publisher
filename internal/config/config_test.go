@@ -19,6 +19,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -144,5 +145,35 @@ func TestFormatRuleFor(t *testing.T) {
 
 	if _, ok := cfg.FormatRuleFor("unknown"); ok {
 		t.Error("expected unknown format to not be found")
+	}
+}
+
+func TestValidate_requiredAssetSuffixes(t *testing.T) {
+	base := func() *Config {
+		return &Config{
+			NXRM:         NXRM{URL: "https://nexus.example.com"},
+			S3:           S3{Bucket: "b"},
+			Repositories: map[string]Repository{"r": {Ecosystem: "maven"}},
+			Formats: map[string]FormatRule{
+				"maven2": {
+					IncludeAssetSuffixes:  []string{".jar", ".pom", "-sources.jar"},
+					RequiredAssetSuffixes: []string{".jar", ".pom"},
+					SBOMSuffix:            "-cyclonedx.json",
+				},
+			},
+		}
+	}
+
+	if err := base().Validate(); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+
+	cfg := base()
+	rule := cfg.Formats["maven2"]
+	rule.RequiredAssetSuffixes = []string{".jar", ".war"}
+	cfg.Formats["maven2"] = rule
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), ".war") {
+		t.Errorf("a required suffix not in includeAssetSuffixes must be rejected, got: %v", err)
 	}
 }

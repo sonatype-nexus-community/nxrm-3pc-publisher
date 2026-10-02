@@ -78,8 +78,13 @@ jackson-core-2.13.5.1-osera-00001.pom
 jackson-core-2.13.5.1-osera-00001-cyclonedx.json
 ```
 
-The CycloneDX document may contain `vulnerabilities`. These become VEX files
-during publishing. If it has none, no VEX file is produced, which is normal.
+The CycloneDX document must be CycloneDX 1.6 or 1.7, and each component needs
+`group` (Maven), `licenses`, and ideally `pedigree.ancestors`; see the
+[README](../README.md#publishing-to-nxrm-what-the-tool-expects). It may
+contain `vulnerabilities`. These become VEX files during publishing. If it has
+none, no VEX file is produced, which is normal. To revise a component's
+vulnerabilities later, change the document's `metadata.timestamp` so the VEX
+file gets a new name.
 
 ## 3. Write a config file
 
@@ -100,6 +105,7 @@ s3:
 formats:
   maven2:
     includeAssetSuffixes: [".jar", ".pom", "-sources.jar", "-javadoc.jar"]
+    requiredAssetSuffixes: [".jar", ".pom"]
     sbomSuffix: "-cyclonedx.json"
 
 repositories:
@@ -170,24 +176,28 @@ and logged, never overwritten. Running the same command twice is safe.
    nxrm-3pc-publisher serve -config config.yaml -log-format json
    ```
 
-3. In NXRM, create a **Webhook: Repository** capability (Administration →
-   System → Capabilities) with:
+3. In NXRM, open Settings → Capabilities and create a **Webhook: Repository**
+   capability with:
    - Repository: your hosted repository
    - Event types: **component**
    - URL: `https://<your-publisher-host>/webhook/nxrm`
-   - Secret key: the same value as `webhook.secret`
+   - Secret key: the same value as `webhook.secret`. NXRM treats the secret as
+     optional, but `serve` rejects every delivery that is not signed with it.
+
+   NXRM blocks webhook URLs that resolve to private addresses by default. If
+   your publisher runs on an internal address, allow it in NXRM's SSRF
+   protection settings.
 
 The server only acts on `component` `CREATED` events for repositories listed
 in the config. Everything else is acknowledged and ignored. It serves plain
 HTTP, so put it behind a TLS-terminating reverse proxy or load balancer.
 
-**Timing matters.** The webhook fires when NXRM creates the component, and
-the tool needs the CycloneDX asset to already be attached at that point. A
-Maven deploy uploads files one at a time, so NXRM may create the component
-(and fire the webhook) before the CycloneDX file arrives. The component is
-then skipped with a "no CycloneDX asset found" error. Uploading all assets in
-a single NXRM UI upload avoids this. Otherwise, re-run the component with
-`publish` once it is complete.
+**Timing matters.** A single Maven deploy makes NXRM send several `component`
+events for the same component while its files are still arriving, and each one
+starts a publish. A publish that runs before all required files are present is
+refused ("required assets missing" or "no CycloneDX asset found"), and later
+events for the same component retry it. Treat `serve` as best effort: run
+`publish` or `backfill` to confirm or fill any gap.
 
 ## 7. Backfill existing components
 
@@ -205,8 +215,10 @@ run continues. Re-running is safe, since existing objects are skipped.
 | Symptom | Likely cause |
 |---|---|
 | `repositories.<name>.ecosystem is required` | Every watched repository needs an explicit `ecosystem`. |
+| Component skipped, required assets missing | The component lacks an asset ending in one of the format's `requiredAssetSuffixes` (for Maven, `.jar` and `.pom`). |
 | Component skipped, no CycloneDX asset found | No asset in the component ends with the format's `sbomSuffix`. Check the asset names in NXRM. |
-| Component skipped, SBOM validation failed | The CycloneDX document has components missing `name`, `version`, `type` or `bom-ref`, or has no `licenses`. The log names the field. |
+| Component skipped, SBOM validation failed | The CycloneDX document is not version 1.6 or 1.7, or a component lacks `name`, `version`, `type`, `bom-ref`, `licenses` or (Maven) `group`. The log names the field. |
+| Warning: no `pedigree.ancestors` | The component declares no upstream ancestor. It is still published. |
 | Webhook ignored, signature did not verify | `webhook.secret` differs from the NXRM capability's secret key. |
 | Webhook ignored, repository not configured | The repository is missing from `repositories:` in the config. |
 | Everything is `already exists, skipping` | Expected on re-runs. Objects in the bucket are never overwritten. |

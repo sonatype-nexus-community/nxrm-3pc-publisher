@@ -23,6 +23,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -77,6 +78,13 @@ type FormatRule struct {
 	// IncludeAssetSuffixes lists filename suffixes that should be pulled into
 	// the bundle .zip, e.g. [".jar", ".pom", "-sources.jar", "-javadoc.jar"].
 	IncludeAssetSuffixes []string `yaml:"includeAssetSuffixes"`
+	// RequiredAssetSuffixes lists filename suffixes of which a component
+	// must have at least one matching asset before it is published, e.g.
+	// [".jar", ".pom"]. The vendor CycloneDX asset (SBOMSuffix) is always
+	// required and need not be listed. Assets that are optional extras, such
+	// as "-sources.jar", belong only in IncludeAssetSuffixes. Every entry
+	// must also be covered by IncludeAssetSuffixes.
+	RequiredAssetSuffixes []string `yaml:"requiredAssetSuffixes"`
 	// SBOMSuffix is the filename suffix identifying the vendor's CycloneDX
 	// asset, e.g. "-cyclonedx.json". This asset is never included in the
 	// bundle zip itself; it is split into SBOM/VEX peer files (see
@@ -136,6 +144,13 @@ func (c *Config) Validate() error {
 	for name, repo := range c.Repositories {
 		if repo.Ecosystem == "" {
 			return fmt.Errorf("repositories.%s.ecosystem is required (no default ecosystem)", name)
+		}
+	}
+	for format, rule := range c.Formats {
+		for _, req := range rule.RequiredAssetSuffixes {
+			if !slices.Contains(rule.IncludeAssetSuffixes, req) {
+				return fmt.Errorf("formats.%s.requiredAssetSuffixes entry %q must also appear in includeAssetSuffixes", format, req)
+			}
 		}
 	}
 	return nil

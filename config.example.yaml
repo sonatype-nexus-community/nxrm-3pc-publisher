@@ -32,6 +32,12 @@ s3:
 # VEX document(s) (uploaded separately under /vex/).
 #
 # A format must be listed here for components of that format to be published.
+#
+# requiredAssetSuffixes: a component is published only if, for every suffix
+# listed, it has at least one asset ending in that suffix (and always a
+# CycloneDX asset matching sbomSuffix). Each entry must also appear in
+# includeAssetSuffixes. Assets listed only in includeAssetSuffixes, such as
+# sources and javadoc, are optional: bundled when present, not needed.
 formats:
   maven2:
     includeAssetSuffixes:
@@ -39,9 +45,14 @@ formats:
       - ".pom"
       - "-sources.jar"
       - "-javadoc.jar"
+    requiredAssetSuffixes:
+      - ".jar"
+      - ".pom"
     sbomSuffix: "-cyclonedx.json"
   npm:
     includeAssetSuffixes:
+      - ".tgz"
+    requiredAssetSuffixes:
       - ".tgz"
     sbomSuffix: "-cyclonedx.json"
 

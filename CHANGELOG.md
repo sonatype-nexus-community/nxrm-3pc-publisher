@@ -20,13 +20,19 @@ First public release.
   `CREATED` webhooks, verified with an HMAC-SHA1 shared secret.
 - CycloneDX split: a vendor's single CycloneDX document is divided into a
   conformant SBOM and one or more VEX documents, with VEX `affects` references
-  rewritten to BOM-Links into the SBOM. A document that only describes its
+  rewritten to BOM-Links into the SBOM. VEX file names use the vendor
+  document's `metadata.timestamp`, so re-publishing is idempotent. A document that only describes its
   subject via `metadata.component` has that component folded into
   `components[]`.
 - Flat zip bundle assembly driven by per-NXRM-format include rules, with the
   derived SBOM embedded in the bundle as `<name>-<version>.bom.json`.
-- Structural validation of bundle, SBOM and VEX before any upload; a component
-  that fails validation is logged and skipped.
+- Validation of bundle, SBOM and VEX before any upload; a component that fails
+  validation is logged and skipped. SBOM and VEX must be CycloneDX 1.6 or 1.7;
+  every SBOM component needs `licenses` (and `group` for Maven). A component
+  without `pedigree.ancestors` is published with a warning.
+- `requiredAssetSuffixes` per format: a component is published only when each
+  required asset (for Maven, `.jar` and `.pom`) and the CycloneDX asset are
+  present. Sources and javadoc remain optional.
 - Idempotent uploads to the Sonatype Third-Party Component Catalog S3 bucket
   (`HeadObject` before every `PutObject`), using the standard AWS SDK
   credential chain.

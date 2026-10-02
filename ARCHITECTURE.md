@@ -162,7 +162,11 @@ formats:
 ```
 
 - Config can override or extend `includeAssetSuffixes`/`sbomSuffix` per
-  repository, but ships with sensible maven2/npm defaults.
+  format, but ships with sensible maven2/npm defaults.
+- `requiredAssetSuffixes` names the assets a component must have before it is
+  published (maven2: `.jar`, `.pom`; npm: `.tgz`). Everything else in
+  `includeAssetSuffixes` (sources, javadoc) is optional. Each required suffix
+  must also appear in `includeAssetSuffixes`.
 - The vendor's raw CycloneDX asset (matched by `sbomSuffix`) is *never*
   included as-is inside the zip. Instead, the **derived SBOM document** (the
   output of the CycloneDX split in §6, named per `SBOMFilename`) is embedded
@@ -192,12 +196,15 @@ in NXRM) into:
   reject them for having zero components.
 - **VEX** (`<CVE>-<timestamp>.bom.json` for single-CVE, or
   `<timestamp>.bom.json` for multi-CVE): `bomFormat`, `specVersion`, a
-  **new** `serialNumber` (VEX is a distinct BOM), `vulnerabilities` carried
+  **new** `serialNumber` and `version: 1` (VEX is a distinct BOM), `vulnerabilities` carried
   through; `affects[].ref` rewritten to a BOM-Link
   (`urn:cdx:<sbom-serialNumber>/<version>#<url-encoded-bom-ref>`) pointing at
   the corresponding component in the SBOM just produced.
 - Timestamp for VEX filenames is the vendor CycloneDX doc's
-  `metadata.timestamp` if present, else time of processing.
+  `metadata.timestamp` if present (carried onto the VEX's own `metadata`), else
+  time of processing. Using the vendor timestamp keeps the S3 key stable
+  across re-publishes, so the HEAD check skips an unchanged VEX; a vendor
+  revises vulnerabilities by bumping that timestamp.
 - If the source document has no `vulnerabilities`, no VEX file is produced or
   uploaded — this is expected and not an error.
 
@@ -207,12 +214,18 @@ Applied to the assembled bundle, SBOM, and VEX independently; any failure
 logs the NXRM coordinates + reason and skips the component (§8), it does not
 abort the run.
 
+- Component (before anything is fetched): every `requiredAssetSuffixes`
+  entry for the format has at least one matching asset, and the CycloneDX
+  asset (`sbomSuffix`) exists. Otherwise the component is refused.
 - Bundle: is a flat zip (no directories); filename matches
   `<name>-<version>.zip`.
-- SBOM: has `bomFormat`, `specVersion`, `serialNumber`; every `components[]`
-  entry has `name`, `version`, `type`, `bom-ref`; `licenses` present.
-- VEX: has `bomFormat`, `specVersion`, `serialNumber`; every
-  `vulnerabilities[]` entry has `id`, `analysis.state`, and at least one
+- SBOM: has `bomFormat`, `serialNumber`, and a `specVersion` of 1.6 or 1.7;
+  every `components[]` entry has `name`, `version`, `type`, `bom-ref` and at
+  least one `licenses` entry, plus `group` for the `maven` ecosystem. A
+  component without `pedigree.ancestors` is logged as a warning, not
+  rejected.
+- VEX: has `bomFormat`, `serialNumber`, and a `specVersion` of 1.6 or 1.7;
+  every `vulnerabilities[]` entry has `id`, `analysis.state`, and at least one
   `affects[].ref`.
 - Filenames match the spec's naming patterns exactly (including required
   `.bom.json`/`.cdx.json` suffix).

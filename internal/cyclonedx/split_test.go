@@ -208,7 +208,7 @@ func TestSplit(t *testing.T) {
 		require.Len(t, *sbom.Components, 1)
 		assert.Equal(t, "jackson-core", (*sbom.Components)[0].Name)
 
-		require.NoError(t, ValidateSBOM(sbom))
+		require.NoError(t, ValidateSBOM(discardLogger(), sbom, "maven"))
 
 		require.NotNil(t, vex)
 		require.NotNil(t, vex.Vulnerabilities)
@@ -297,4 +297,59 @@ func TestSplit_logsWarningWhenRefLeftUnrewritten(t *testing.T) {
 
 	assert.Contains(t, buf.String(), "level=WARN")
 	assert.Contains(t, buf.String(), "left unrewritten")
+}
+
+func TestSplitVersionAndTimestamp(t *testing.T) {
+	source := &cdx.BOM{
+		BOMFormat:    "CycloneDX",
+		SpecVersion:  cdx.SpecVersion1_5,
+		SerialNumber: "urn:uuid:0f2c9a6e-71c4-4d8b-9e3a-5b6d1f0a2c44",
+		Metadata:     &cdx.Metadata{Timestamp: "2026-10-02T09:30:00Z"},
+		Components: &[]cdx.Component{
+			{BOMRef: "a", Name: "a", Version: "1", Type: cdx.ComponentTypeLibrary},
+		},
+		Vulnerabilities: &[]cdx.Vulnerability{
+			{ID: "CVE-2026-00001", Affects: &[]cdx.Affects{{Ref: "a"}}},
+		},
+	}
+
+	t.Run("source without version gets version 1 in SBOM, VEX and BOM-Link", func(t *testing.T) {
+		source.Version = 0
+		sbom, vex, err := Split(discardLogger(), bytes.NewReader(mustMarshalBOM(t, source)))
+		require.NoError(t, err)
+		require.NotNil(t, vex)
+
+		assert.Equal(t, 1, sbom.Version)
+		assert.Equal(t, 1, vex.Version)
+		assert.Contains(t, (*(*vex.Vulnerabilities)[0].Affects)[0].Ref, "/1#")
+	})
+
+	t.Run("source version above 1 is preserved and used in BOM-Link", func(t *testing.T) {
+		source.Version = 3
+		sbom, vex, err := Split(discardLogger(), bytes.NewReader(mustMarshalBOM(t, source)))
+		require.NoError(t, err)
+
+		assert.Equal(t, 3, sbom.Version)
+		assert.Equal(t, 1, vex.Version)
+		assert.Contains(t, (*(*vex.Vulnerabilities)[0].Affects)[0].Ref, "/3#")
+	})
+
+	t.Run("VEX filename is derived from the source timestamp and is stable", func(t *testing.T) {
+		source.Version = 1
+		raw := mustMarshalBOM(t, source)
+		_, vex1, err := Split(discardLogger(), bytes.NewReader(raw))
+		require.NoError(t, err)
+		_, vex2, err := Split(discardLogger(), bytes.NewReader(raw))
+		require.NoError(t, err)
+
+		assert.Equal(t, "CVE-2026-00001-2026-10-02T09:30:00Z.bom.json", VEXFilename(discardLogger(), vex1))
+		assert.Equal(t, VEXFilename(discardLogger(), vex1), VEXFilename(discardLogger(), vex2))
+	})
+
+	t.Run("source without timestamp leaves VEX metadata unset", func(t *testing.T) {
+		source.Metadata = nil
+		_, vex, err := Split(discardLogger(), bytes.NewReader(mustMarshalBOM(t, source)))
+		require.NoError(t, err)
+		assert.Nil(t, vex.Metadata)
+	})
 }

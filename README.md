@@ -44,8 +44,8 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 | Ecosystem | NXRM format | Default bundle contents | Status |
 |---|---|---|---|
-| `maven` | `maven2` | `.jar`, `.pom`, `-sources.jar`, `-javadoc.jar` | Supported. Namespace is the Maven `groupId`. |
-| `npm` | `npm` | `.tgz` | Default rules provided. No namespace segment. |
+| `maven` | `maven2` | `.jar`, `.pom`, `-sources.jar`, `-javadoc.jar` (`.jar` and `.pom` required) | Supported. Namespace is the Maven `groupId`. |
+| `npm` | `npm` | `.tgz` (required) | Default rules only; not yet verified end to end. Scoped packages (`@scope/name`) are untested, so the scope may be missing from the S3 path. |
 
 Only **hosted** repositories are intended as sources. Each watched repository
 must declare its `ecosystem` explicitly in the config; there is no default, so
@@ -82,13 +82,28 @@ Notes on the CycloneDX document:
 - It can describe its subject either in `components[]` or only in
   `metadata.component`; in the latter case the tool folds it into
   `components[]`.
-- Every component needs `name`, `version`, `type` and `bom-ref`, and at least
-  one license must be present across the components.
+- `specVersion` must be CycloneDX **1.6 or 1.7**; other versions are rejected.
+- Every component needs `name`, `version`, `type`, `bom-ref` and at least one
+  entry under `licenses`. Maven components also need a `group`.
+- Components derived from an open source project should declare it under
+  `pedigree.ancestors`, so newly disclosed upstream vulnerabilities can be
+  matched to your build. A component without ancestors is published, with a
+  warning in the log.
 - Put vulnerability data in the document's `vulnerabilities[]`, each with an
   `id`, `analysis.state` and `affects[].ref`. The tool moves these into VEX
   files. A document with no vulnerabilities simply produces no VEX file.
+- The VEX file name includes `metadata.timestamp` from your document. The
+  bucket never overwrites, so to publish a revised set of vulnerabilities for
+  the same component, bump `metadata.timestamp`; otherwise the new file has the
+  same name and is skipped.
 - The raw CycloneDX document is never placed in the bundle as is. The derived
   SBOM, named `<name>-<version>.bom.json`, is embedded instead.
+
+A component is published only when its CycloneDX document and the format's
+required assets (see `requiredAssetSuffixes` in
+[`config.example.yaml`](./config.example.yaml); for Maven, the `.jar` and
+`.pom`) are all present. Extras such as `-sources.jar` and `-javadoc.jar` are
+optional and are bundled when present.
 
 [docs/QUICKSTART.md](./docs/QUICKSTART.md) walks through uploading a Maven
 component, including the `mvn deploy:deploy-file` command.
@@ -130,6 +145,7 @@ s3:
 formats:
   maven2:
     includeAssetSuffixes: [".jar", ".pom", "-sources.jar", "-javadoc.jar"]
+    requiredAssetSuffixes: [".jar", ".pom"]
     sbomSuffix: "-cyclonedx.json"
 repositories:
   <your-maven-hosted-repository>:

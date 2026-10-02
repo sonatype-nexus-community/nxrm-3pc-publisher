@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -84,11 +85,15 @@ func validCycloneDXJSON(t *testing.T, withVuln bool) []byte {
 		Components: &[]cdx.Component{
 			{
 				BOMRef:  "pkg:maven/org.example/widget@1.0.0",
+				Group:   "org.example",
 				Name:    "widget",
 				Version: "1.0.0",
 				Type:    cdx.ComponentTypeLibrary,
 				Licenses: &cdx.Licenses{
 					{License: &cdx.License{ID: "Apache-2.0"}},
+				},
+				Pedigree: &cdx.Pedigree{
+					Ancestors: &[]cdx.Component{{Type: cdx.ComponentTypeLibrary, Group: "org.example", Name: "widget", Version: "0.9.0"}},
 				},
 			},
 		},
@@ -266,4 +271,60 @@ func TestPublish_skipsAlreadyUploadedObjects(t *testing.T) {
 	if !result.BundleSkipped {
 		t.Error("expected BundleSkipped to be true")
 	}
+}
+
+func TestPublish_requiredAssets(t *testing.T) {
+	sbomJSON := validCycloneDXJSON(t, false)
+	assets := map[string][]byte{
+		"https://nexus.example.com/widget-1.0.0.jar":            []byte("jar-content"),
+		"https://nexus.example.com/widget-1.0.0-cyclonedx.json": sbomJSON,
+	}
+	repoCfg, rule := testRepoAndRule()
+	rule.IncludeAssetSuffixes = []string{".jar", ".pom"}
+	rule.RequiredAssetSuffixes = []string{".jar", ".pom"}
+
+	t.Run("missing required pom fails before anything is uploaded", func(t *testing.T) {
+		uploader := newFakeUploader()
+		_, err := Publish(context.Background(), discardLogger(), fetchFrom(assets), testComponent(sbomJSON), repoCfg, rule, uploader)
+
+		if err == nil {
+			t.Fatal("expected an error for the missing .pom")
+		}
+		if !strings.Contains(err.Error(), `".pom"`) || strings.Contains(err.Error(), `".jar"`) {
+			t.Errorf("error should name only the missing .pom suffix, got: %v", err)
+		}
+		if len(uploader.uploaded) != 0 {
+			t.Errorf("nothing should be uploaded, got %d objects", len(uploader.uploaded))
+		}
+	})
+
+	t.Run("checksum companions do not satisfy a requirement", func(t *testing.T) {
+		comp := testComponent(sbomJSON)
+		comp.Assets = append(comp.Assets, model.Asset{Filename: "widget-1.0.0.pom.sha1", DownloadURL: "https://nexus.example.com/widget-1.0.0.pom.sha1"})
+		_, err := Publish(context.Background(), discardLogger(), fetchFrom(assets), comp, repoCfg, rule, newFakeUploader())
+
+		if err == nil || !strings.Contains(err.Error(), `".pom"`) {
+			t.Fatalf("a .pom.sha1 must not count as the .pom, got: %v", err)
+		}
+	})
+
+	t.Run("all required assets present publishes", func(t *testing.T) {
+		comp := testComponent(sbomJSON)
+		comp.Assets = append(comp.Assets, model.Asset{Filename: "widget-1.0.0.pom", DownloadURL: "https://nexus.example.com/widget-1.0.0.pom"})
+		withPom := map[string][]byte{"https://nexus.example.com/widget-1.0.0.pom": []byte("pom-content")}
+		for k, v := range assets {
+			withPom[k] = v
+		}
+		if _, err := Publish(context.Background(), discardLogger(), fetchFrom(withPom), comp, repoCfg, rule, newFakeUploader()); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("no requirement configured keeps the old behaviour", func(t *testing.T) {
+		noReq := rule
+		noReq.RequiredAssetSuffixes = nil
+		if _, err := Publish(context.Background(), discardLogger(), fetchFrom(assets), testComponent(sbomJSON), repoCfg, noReq, newFakeUploader()); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }

@@ -18,16 +18,35 @@ package cyclonedx
 
 import (
 	"fmt"
+	"log/slog"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 )
 
-// ValidateSBOM checks that bom has the required fields for a Sonatype
-// Third-Party Component Catalog SBOM: BOMFormat, SpecVersion, SerialNumber
-// all non-empty; every entry in *Components has Name, Version, Type
-// (non-empty/non-zero), and BOMRef non-empty; Licenses present (at least one
-// license somewhere across the components).
-func ValidateSBOM(bom *cdx.BOM) error {
+// checkSpecVersion enforces the CycloneDX versions the catalog accepts
+// (1.6 and 1.7). It applies to both SBOM and VEX documents.
+func checkSpecVersion(v cdx.SpecVersion) error {
+	switch v {
+	case cdx.SpecVersion1_6, cdx.SpecVersion1_7:
+		return nil
+	case 0:
+		return fmt.Errorf("SpecVersion is required (must be 1.6 or 1.7)")
+	default:
+		return fmt.Errorf("SpecVersion %s is not supported (must be 1.6 or 1.7)", v)
+	}
+}
+
+// ValidateSBOM checks that bom meets the Sonatype Third-Party Component
+// Catalog SBOM requirements: BOMFormat, SerialNumber non-empty; SpecVersion
+// 1.6 or 1.7; and every entry in *Components has Name, Version, Type,
+// BOMRef and at least one license. For the "maven" ecosystem every component
+// must also declare a Group, as the package manager requires one.
+//
+// A component without pedigree.ancestors is logged as a warning rather than
+// rejected: ancestors apply to patched or forked components, and the
+// catalog treats them as an expectation, not a hard requirement.
+// logger must not be nil.
+func ValidateSBOM(logger *slog.Logger, bom *cdx.BOM, ecosystem string) error {
 	if bom == nil {
 		return fmt.Errorf("BOM is nil")
 	}
@@ -36,8 +55,8 @@ func ValidateSBOM(bom *cdx.BOM) error {
 		return fmt.Errorf("BOMFormat is required")
 	}
 
-	if bom.SpecVersion == 0 {
-		return fmt.Errorf("SpecVersion is required")
+	if err := checkSpecVersion(bom.SpecVersion); err != nil {
+		return err
 	}
 
 	if bom.SerialNumber == "" {
@@ -48,7 +67,6 @@ func ValidateSBOM(bom *cdx.BOM) error {
 		return fmt.Errorf("components is required and must not be empty")
 	}
 
-	hasLicenses := false
 	for i, comp := range *bom.Components {
 		if comp.Name == "" {
 			return fmt.Errorf("component %d: Name is required", i)
@@ -62,13 +80,15 @@ func ValidateSBOM(bom *cdx.BOM) error {
 		if comp.BOMRef == "" {
 			return fmt.Errorf("component %d: BOMRef is required", i)
 		}
-		if comp.Licenses != nil && len(*comp.Licenses) > 0 {
-			hasLicenses = true
+		if comp.Licenses == nil || len(*comp.Licenses) == 0 {
+			return fmt.Errorf("component %d (%s): at least one license is required", i, comp.Name)
 		}
-	}
-
-	if !hasLicenses {
-		return fmt.Errorf("at least one license is required across components")
+		if ecosystem == "maven" && comp.Group == "" {
+			return fmt.Errorf("component %d (%s): Group is required for the maven ecosystem", i, comp.Name)
+		}
+		if comp.Pedigree == nil || comp.Pedigree.Ancestors == nil || len(*comp.Pedigree.Ancestors) == 0 {
+			logger.Warn("SBOM component has no pedigree.ancestors; the catalog uses them to find newly disclosed upstream vulnerabilities", "component", comp.Name, "version", comp.Version)
+		}
 	}
 
 	return nil
@@ -87,8 +107,8 @@ func ValidateVEX(vex *cdx.BOM) error {
 		return fmt.Errorf("BOMFormat is required")
 	}
 
-	if vex.SpecVersion == 0 {
-		return fmt.Errorf("SpecVersion is required")
+	if err := checkSpecVersion(vex.SpecVersion); err != nil {
+		return err
 	}
 
 	if vex.SerialNumber == "" {
